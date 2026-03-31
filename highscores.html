@@ -95,7 +95,7 @@
     </main>
 
     <script type="module">
-      import { clearScores, getAllScores, getScores } from "/scores.js";
+      import { clearScores, getAllScores, getScores, getScoresServer } from "/scores.js";
 
       async function loadManifest() {
         const res = await fetch("/games/games.json", { cache: "no-cache" });
@@ -148,8 +148,13 @@
 
       function refresh() {
         const id = getSelectedGameId();
-        const entries = id ? getScores(id) : [];
-        renderRows(entries);
+        if (!id) {
+          renderRows([]);
+          return;
+        }
+        getScoresServer(id, { limit: 50 })
+          .then((entries) => renderRows(entries))
+          .catch(() => renderRows(getScores(id)));
       }
 
       (async function init() {

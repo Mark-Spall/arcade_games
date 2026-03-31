@@ -1,4 +1,4 @@
-import { clearScores, getAllScores, getScores } from "/scores.js";
+import { clearScores, getAllScores, getScores, getScoresServer } from "/scores.js";
 
 async function loadManifest() {
   const res = await fetch("/games/games.json", { cache: "no-cache" });
@@ -98,8 +98,13 @@ function getSelectedGameId() {
 
 function refreshScores() {
   const id = getSelectedGameId();
-  const entries = id ? getScores(id) : [];
-  renderScoreRows(entries);
+  if (!id) {
+    renderScoreRows([]);
+    return;
+  }
+  getScoresServer(id, { limit: 10 })
+    .then((entries) => renderScoreRows(entries))
+    .catch(() => renderScoreRows(getScores(id)));
 }
 
 function setUpScores(manifest) {
