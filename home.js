@@ -74,7 +74,7 @@ function renderScoreRows(entries) {
   rows.innerHTML = "";
 
   if (!entries.length) {
-    rows.innerHTML = `<tr><td colspan="4" class="row-muted">No scores yet on this device.</td></tr>`;
+    rows.innerHTML = `<tr><td colspan="4" class="row-muted">No scores yet.</td></tr>`;
     return;
   }
 
