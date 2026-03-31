@@ -14,7 +14,7 @@
           <span class="game-title">YOUR GAME NAME</span>
         </div>
         <div class="right">
-          <span class="tag">Scores are local</span>
+          <span class="tag">Global leaderboard</span>
         </div>
       </header>
 
@@ -75,7 +75,7 @@
         const name = prompt("Name (max 12 chars):", "AAA");
         if (name == null) return;
         submitScore({ gameId: GAME_ID, name, score, limit: 10 });
-        alert("Saved locally. Check High Scores.");
+        alert("Score submitted. Check High Scores.");
       });
     </script>
   </body>

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>High Scores • Arcade Cabinet</title>
-    <meta name="description" content="Local high scores stored in your browser." />
+    <meta name="description" content="Global high scores shared across all players." />
     <link rel="stylesheet" href="/styles.css" />
     <style>
       .table {
@@ -60,7 +60,7 @@
           <div class="badge" aria-hidden="true">HS</div>
           <div>
             <h1 class="title">HIGH SCORES</h1>
-            <p class="subtitle">Stored on this device (localStorage).</p>
+            <p class="subtitle">Shared leaderboard (same scores for everyone).</p>
           </div>
         </div>
         <nav class="nav">
@@ -116,7 +116,7 @@
         const rows = document.getElementById("rows");
         rows.innerHTML = "";
         if (!entries.length) {
-          rows.innerHTML = `<tr><td colspan="4" class="row-muted">No scores yet on this device.</td></tr>`;
+          rows.innerHTML = `<tr><td colspan="4" class="row-muted">No scores yet.</td></tr>`;
           return;
         }
         for (let i = 0; i < entries.length; i++) {

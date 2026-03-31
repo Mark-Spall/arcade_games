@@ -1,0 +1,10 @@
+# Do not publish Worker source or config as public static files.
+worker
+
+# Dependencies and tooling (must not be uploaded as static assets).
+node_modules
+.wrangler
+.git
+
+package.json
+package-lock.json

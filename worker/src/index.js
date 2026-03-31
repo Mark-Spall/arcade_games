@@ -81,6 +81,9 @@ export default {
     }
 
     if (url.pathname !== "/api/scores") {
+      if (env.ASSETS) {
+        return env.ASSETS.fetch(request);
+      }
       return json({ ok: false, error: "Not found" }, { status: 404, headers: cors });
     }
 
