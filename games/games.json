@@ -6,5 +6,12 @@
     "description": "Canyon shooter with neon glow and dive-bombing enemies.",
     "tags": ["Shooter", "Arcade", "Neon"],
     "hot": true
+  },
+  {
+    "id": "void-defender",
+    "title": "Void Defender",
+    "href": "/games/void-defender.html",
+    "description": "Defender-style rescue mission: fly, bomb, save humans.",
+    "tags": ["Defender", "Arcade", "Rescue"]
   }
 ]
