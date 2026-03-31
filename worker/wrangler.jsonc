@@ -6,7 +6,7 @@
   "kv_namespaces": [
     {
       "binding": "SCORES",
-      "id": "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+      "id": "arcade-scores"
     }
   ]
 }
