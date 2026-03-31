@@ -21,25 +21,50 @@
           </div>
         </div>
         <nav class="nav">
-          <a class="btn" href="/highscores.html">High Scores</a>
           <a class="btn btn-ghost" href="https://github.com/" target="_blank" rel="noreferrer">Source</a>
         </nav>
       </div>
     </header>
 
     <main class="wrap">
-      <section class="panel">
-        <div class="panel-head">
-          <h2 class="panel-title">GAME SELECT</h2>
-          <div class="panel-meta">
-            <span id="gameCount" class="tag">Loading…</span>
-            <span class="tag tag-warn">Local scores</span>
+      <div class="columns">
+        <section class="panel columns-panel">
+          <div class="panel-head">
+            <h2 class="panel-title">GAME SELECT</h2>
+            <div class="panel-meta">
+              <span id="gameCount" class="tag">Loading…</span>
+              <span class="tag tag-warn">Local scores</span>
+            </div>
           </div>
-        </div>
-        <div id="games" class="grid" aria-live="polite"></div>
-      </section>
+          <div id="games" class="grid" aria-live="polite"></div>
+        </section>
+
+        <section class="panel columns-panel">
+          <div class="panel-head">
+            <h2 class="panel-title">HIGH SCORES</h2>
+            <div class="panel-meta" style="gap:10px">
+              <select id="hsGame" class="select" aria-label="Select game"></select>
+              <button id="hsClear" class="btn btn-ghost" type="button">Clear</button>
+              <a class="btn btn-ghost" href="/highscores.html">Full</a>
+            </div>
+          </div>
+          <div style="padding: 4px 16px 16px">
+            <table class="table" aria-label="High scores">
+              <thead>
+                <tr>
+                  <th style="width: 70px">Rank</th>
+                  <th>Name</th>
+                  <th style="width: 120px">Score</th>
+                  <th style="width: 180px">When</th>
+                </tr>
+              </thead>
+              <tbody id="hsRows"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
     </main>
 
-    <script src="/app.js" defer></script>
+    <script type="module" src="/home.js"></script>
   </body>
 </html>
