@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>High Scores • Arcade Cabinet</title>
-    <meta name="description" content="Local high scores stored in your browser." />
+    <meta name="description" content="Global arcade leaderboard (synced from the score API when available)." />
     <link rel="stylesheet" href="/styles.css" />
     <style>
       .table {
@@ -60,7 +60,7 @@
           <div class="badge" aria-hidden="true">HS</div>
           <div>
             <h1 class="title">HIGH SCORES</h1>
-            <p class="subtitle">Stored on this device (localStorage).</p>
+            <p class="subtitle">Shared leaderboard; cached on this device when offline.</p>
           </div>
         </div>
         <nav class="nav">
@@ -95,7 +95,7 @@
     </main>
 
     <script type="module">
-      import { clearScores, getAllScores, getScores, getScoresServer } from "/scores.js";
+      import { clearScores, getAllScores, getScores, syncAllScoresFromServer } from "/scores.js";
 
       async function loadManifest() {
         const res = await fetch("/games/games.json", { cache: "no-cache" });
@@ -116,7 +116,7 @@
         const rows = document.getElementById("rows");
         rows.innerHTML = "";
         if (!entries.length) {
-          rows.innerHTML = `<tr><td colspan="4" class="row-muted">No scores yet on this device.</td></tr>`;
+          rows.innerHTML = `<tr><td colspan="4" class="row-muted">No scores yet.</td></tr>`;
           return;
         }
         for (let i = 0; i < entries.length; i++) {
@@ -146,19 +146,23 @@
         return sel.value || "";
       }
 
-      function refresh() {
+      async function refresh() {
         const id = getSelectedGameId();
         if (!id) {
           renderRows([]);
           return;
         }
-        getScoresServer(id, { limit: 50 })
-          .then((entries) => renderRows(entries))
-          .catch(() => renderRows(getScores(id)));
+        const entries = await getScores(id, { limit: 50 });
+        renderRows(entries);
       }
 
       (async function init() {
-        const [manifest, all] = await Promise.all([loadManifest(), Promise.resolve(getAllScores())]);
+        const manifest = await loadManifest();
+        await syncAllScoresFromServer(
+          manifest.map((g) => g.id),
+          { limit: 50 },
+        );
+        const all = getAllScores();
         const known = new Map(manifest.map((g) => [g.id, g.title]));
         const idsFromScores = all.map((x) => x.gameId);
         const ids = Array.from(new Set([...known.keys(), ...idsFromScores]));
@@ -184,11 +188,10 @@
         document.getElementById("clearBtn").addEventListener("click", () => {
           const id = getSelectedGameId();
           if (!id) return;
-          clearScores(id);
-          refresh();
+          void clearScores(id).then(() => refresh());
         });
 
-        refresh();
+        await refresh();
       })();
     </script>
   </body>

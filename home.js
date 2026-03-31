@@ -1,4 +1,4 @@
-import { clearScores, getAllScores, getScores, getScoresServer } from "/scores.js";
+import { clearScores, getAllScores, getScores, syncAllScoresFromServer } from "/scores.js";
 
 async function loadManifest() {
   const res = await fetch("/games/games.json", { cache: "no-cache" });
@@ -74,7 +74,7 @@ function renderScoreRows(entries) {
   rows.innerHTML = "";
 
   if (!entries.length) {
-    rows.innerHTML = `<tr><td colspan="4" class="row-muted">No scores yet on this device.</td></tr>`;
+    rows.innerHTML = `<tr><td colspan="4" class="row-muted">No scores yet.</td></tr>`;
     return;
   }
 
@@ -96,18 +96,17 @@ function getSelectedGameId() {
   return sel?.value || "";
 }
 
-function refreshScores() {
+async function refreshScores() {
   const id = getSelectedGameId();
   if (!id) {
     renderScoreRows([]);
     return;
   }
-  getScoresServer(id, { limit: 10 })
-    .then((entries) => renderScoreRows(entries))
-    .catch(() => renderScoreRows(getScores(id)));
+  const entries = await getScores(id, { limit: 10 });
+  renderScoreRows(entries);
 }
 
-function setUpScores(manifest) {
+async function setUpScores(manifest) {
   const sel = document.getElementById("hsGame");
   const clearBtn = document.getElementById("hsClear");
   if (!sel || !clearBtn) return;
@@ -135,18 +134,21 @@ function setUpScores(manifest) {
   clearBtn.addEventListener("click", () => {
     const id = getSelectedGameId();
     if (!id) return;
-    clearScores(id);
-    refreshScores();
+    void clearScores(id).then(() => refreshScores());
   });
 
-  refreshScores();
+  await syncAllScoresFromServer(
+    manifest.map((g) => g.id),
+    { limit: 50 },
+  );
+  await refreshScores();
 }
 
 (async function init() {
   try {
     const manifest = await loadManifest();
     renderGames(manifest);
-    setUpScores(manifest);
+    await setUpScores(manifest);
   } catch (e) {
     const grid = document.getElementById("games");
     const count = document.getElementById("gameCount");
