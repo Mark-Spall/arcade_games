@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>YOUR GAME NAME</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="game-shell">
+      <header class="game-topbar">
+        <div class="left">
+          <a class="btn btn-ghost" href="/">Exit</a>
+          <span class="game-title">YOUR GAME NAME</span>
+        </div>
+        <div class="right">
+          <span class="tag">Scores are local</span>
+        </div>
+      </header>
+
+      <main class="game-main">
+        <div class="screen">
+          <canvas id="c" width="480" height="640" aria-label="Game canvas"></canvas>
+          <div class="hud">
+            <div>SCORE <span id="score" class="big mono">0</span></div>
+            <div>
+              <span class="kbd">←</span> <span class="kbd">→</span>
+              <span class="kbd">Space</span>
+            </div>
+          </div>
+          <div class="hud">
+            <div class="row-muted" style="color: rgba(233,230,255,.7)">
+              Press <span class="kbd">Enter</span> to submit score (demo).
+            </div>
+            <a class="btn btn-ghost" href="/highscores.html">High Scores</a>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script type="module">
+      import { submitScore } from "/scores.js";
+
+      const GAME_ID = "your-game-id";
+      const canvas = document.getElementById("c");
+      const ctx = canvas.getContext("2d");
+      const scoreEl = document.getElementById("score");
+
+      let score = 0;
+      let x = 240, vx = 0;
+
+      const keys = new Set();
+      addEventListener("keydown", (e) => keys.add(e.key));
+      addEventListener("keyup", (e) => keys.delete(e.key));
+
+      function tick() {
+        // minimal demo loop (replace with your game)
+        vx = (keys.has("ArrowLeft") ? -1 : 0) + (keys.has("ArrowRight") ? 1 : 0);
+        x = Math.max(16, Math.min(464, x + vx * 6));
+
+        score += 1;
+        scoreEl.textContent = String(score);
+
+        ctx.fillStyle = "#020107";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#43ffd2";
+        ctx.fillRect(x - 12, 560, 24, 24);
+
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+
+      addEventListener("keydown", (e) => {
+        if (e.key !== "Enter") return;
+        const name = prompt("Name (max 12 chars):", "AAA");
+        if (name == null) return;
+        submitScore({ gameId: GAME_ID, name, score, limit: 10 });
+        alert("Saved locally. Check High Scores.");
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Arcade Cabinet</title>
+    <meta name="description" content="A tiny 90s-style arcade of single-file HTML games." />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="marquee" aria-hidden="true">
+        <span>INSERT COIN • INSERT COIN • INSERT COIN • INSERT COIN • </span>
+      </div>
+      <div class="wrap">
+        <div class="brand">
+          <div class="badge" aria-hidden="true">90s</div>
+          <div>
+            <h1 class="title">ARCADE CABINET</h1>
+            <p class="subtitle">Pick a game. Chase the high score.</p>
+          </div>
+        </div>
+        <nav class="nav">
+          <a class="btn" href="/highscores.html">High Scores</a>
+          <a class="btn btn-ghost" href="https://github.com/" target="_blank" rel="noreferrer">Source</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <section class="panel">
+        <div class="panel-head">
+          <h2 class="panel-title">GAME SELECT</h2>
+          <div class="panel-meta">
+            <span id="gameCount" class="tag">Loading…</span>
+            <span class="tag tag-warn">Local scores</span>
+          </div>
+        </div>
+        <div id="games" class="grid" aria-live="polite"></div>
+      </section>
+
+      <section class="panel panel-slim">
+        <h2 class="panel-title">HOW IT WORKS</h2>
+        <ul class="bullets">
+          <li><strong>Each game</strong> is one file in <code>/games</code>.</li>
+          <li><strong>High scores</strong> are stored in your browser (no backend).</li>
+          <li><strong>Add a game</strong>: copy <code>/games/template.html</code>, then add it to <code>/games/games.json</code>.</li>
+        </ul>
+      </section>
+    </main>
+
+    <footer class="wrap footer">
+      <small>
+        Tip: host as a static site (Cloudflare Pages or a Worker serving static assets).
+      </small>
+    </footer>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

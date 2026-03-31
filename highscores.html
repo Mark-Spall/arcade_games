@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>High Scores • Arcade Cabinet</title>
+    <meta name="description" content="Local high scores stored in your browser." />
+    <link rel="stylesheet" href="/styles.css" />
+    <style>
+      .table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+      .table th,
+      .table td {
+        text-align: left;
+        padding: 10px 10px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        vertical-align: top;
+      }
+      .table th {
+        text-transform: uppercase;
+        letter-spacing: 0.2em;
+        font-size: 11px;
+        color: rgba(233, 230, 255, 0.9);
+      }
+      .mono {
+        font-variant-numeric: tabular-nums;
+      }
+      .row-muted {
+        color: rgba(233, 230, 255, 0.7);
+      }
+      .controls {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-end;
+      }
+      .select {
+        padding: 9px 10px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(0, 0, 0, 0.25);
+        color: rgba(233, 230, 255, 0.9);
+        letter-spacing: 0.06em;
+      }
+      .hint {
+        padding: 14px 16px 16px;
+        color: rgba(233, 230, 255, 0.8);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <div class="wrap">
+        <div class="brand">
+          <div class="badge" aria-hidden="true">HS</div>
+          <div>
+            <h1 class="title">HIGH SCORES</h1>
+            <p class="subtitle">Stored on this device (localStorage).</p>
+          </div>
+        </div>
+        <nav class="nav">
+          <a class="btn" href="/">Back</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <section class="panel">
+        <div class="panel-head">
+          <h2 class="panel-title">SCOREBOARD</h2>
+          <div class="controls">
+            <select id="gameSelect" class="select" aria-label="Select game"></select>
+            <button id="clearBtn" class="btn btn-ghost" type="button">Clear</button>
+          </div>
+        </div>
+        <div style="padding: 4px 16px 16px">
+          <table class="table" aria-label="High score table">
+            <thead>
+              <tr>
+                <th style="width: 80px">Rank</th>
+                <th>Name</th>
+                <th style="width: 140px">Score</th>
+                <th style="width: 220px">When</th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+        <div class="hint">
+          Games can write scores by importing <code>/scores.js</code> and calling
+          <code>submitScore({ gameId, name, score })</code>.
+        </div>
+      </section>
+    </main>
+
+    <script type="module">
+      import { clearScores, getAllScores, getScores } from "/scores.js";
+
+      async function loadManifest() {
+        const res = await fetch("/games/games.json", { cache: "no-cache" });
+        if (!res.ok) return [];
+        return await res.json();
+      }
+
+      function fmtWhen(iso) {
+        try {
+          const d = new Date(iso);
+          return d.toLocaleString();
+        } catch {
+          return String(iso ?? "");
+        }
+      }
+
+      function renderRows(entries) {
+        const rows = document.getElementById("rows");
+        rows.innerHTML = "";
+        if (!entries.length) {
+          rows.innerHTML = `<tr><td colspan="4" class="row-muted">No scores yet on this device.</td></tr>`;
+          return;
+        }
+        for (let i = 0; i < entries.length; i++) {
+          const e = entries[i];
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td class="mono">#${i + 1}</td>
+            <td>${escapeHtml(e.name ?? "AAA")}</td>
+            <td class="mono">${Number(e.score ?? 0).toLocaleString()}</td>
+            <td class="row-muted">${escapeHtml(fmtWhen(e.at))}</td>
+          `;
+          rows.appendChild(tr);
+        }
+      }
+
+      function escapeHtml(s) {
+        return String(s ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      function getSelectedGameId() {
+        const sel = document.getElementById("gameSelect");
+        return sel.value || "";
+      }
+
+      function refresh() {
+        const id = getSelectedGameId();
+        const entries = id ? getScores(id) : [];
+        renderRows(entries);
+      }
+
+      (async function init() {
+        const [manifest, all] = await Promise.all([loadManifest(), Promise.resolve(getAllScores())]);
+        const known = new Map(manifest.map((g) => [g.id, g.title]));
+        const idsFromScores = all.map((x) => x.gameId);
+        const ids = Array.from(new Set([...known.keys(), ...idsFromScores]));
+
+        const sel = document.getElementById("gameSelect");
+        sel.innerHTML = "";
+        for (const id of ids) {
+          const opt = document.createElement("option");
+          opt.value = id;
+          opt.textContent = known.get(id) ?? id;
+          sel.appendChild(opt);
+        }
+
+        if (!ids.length) {
+          sel.innerHTML = `<option value="">(no games)</option>`;
+        } else {
+          // Default to the first game in manifest; otherwise first with scores.
+          const first = manifest[0]?.id ?? ids[0];
+          sel.value = first;
+        }
+
+        sel.addEventListener("change", refresh);
+        document.getElementById("clearBtn").addEventListener("click", () => {
+          const id = getSelectedGameId();
+          if (!id) return;
+          clearScores(id);
+          refresh();
+        });
+
+        refresh();
+      })();
+    </script>
+  </body>
+</html>

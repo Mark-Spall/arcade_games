@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NEON BLASTER - Arcade</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0a0a;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    overflow: hidden;
+    font-family: 'Press Start 2P', monospace;
+  }
+
+  #arcade-cabinet {
+    position: relative;
+    border: 4px solid #333;
+    border-radius: 12px;
+    box-shadow:
+      0 0 30px rgba(255, 0, 200, 0.3),
+      0 0 60px rgba(0, 200, 255, 0.2),
+      inset 0 0 30px rgba(0,0,0,0.8);
+    background: #111;
+    padding: 8px;
+  }
+
+  #gameCanvas {
+    display: block;
+    border-radius: 6px;
+    image-rendering: pixelated;
+  }
+
+  #crt-overlay {
+    position: absolute;
+    top: 8px; left: 8px; right: 8px; bottom: 8px;
+    border-radius: 6px;
+    pointer-events: none;
+    z-index: 10;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(0, 0, 0, 0.15) 0px,
+      rgba(0, 0, 0, 0.15) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  }
+  #crt-overlay::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 6px;
+    background: radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.45) 100%);
+  }
+
+  #touch-controls {
+    display: none;
+    position: fixed;
+    bottom: 10px;
+    left: 0; right: 0;
+    justify-content: space-between;
+    padding: 0 15px;
+    z-index: 100;
+  }
+  .touch-btn {
+    background: rgba(255, 0, 200, 0.25);
+    border: 2px solid rgba(255, 0, 200, 0.5);
+    color: #ff00c8;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 18px;
+    width: 64px; height: 64px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    user-select: none; -webkit-user-select: none;
+    touch-action: manipulation;
+  }
+  .touch-btn:active { background: rgba(255, 0, 200, 0.5); }
+
+  @media (max-width: 520px) {
+    #arcade-cabinet { border: 2px solid #333; padding: 4px; border-radius: 6px; }
+    #crt-overlay { top: 4px; left: 4px; right: 4px; bottom: 4px; }
+    #touch-controls { display: flex; }
+  }
+</style>
+</head>
+<body>
+
+<div id="arcade-cabinet">
+  <canvas id="gameCanvas"></canvas>
+  <div id="crt-overlay"></div>
+</div>
+
+<div id="touch-controls">
+  <div style="display:flex;gap:10px;">
+    <button class="touch-btn" id="btn-left">◀</button>
+    <button class="touch-btn" id="btn-right">▶</button>
+  </div>
+  <button class="touch-btn" id="btn-fire">●</button>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+  const maxW = Math.min(window.innerWidth - 30, 480);
+  const maxH = Math.min(window.innerHeight - 30, 640);
+  const scale = Math.min(maxW / 480, maxH / 640);
+  canvas.width = 480;
+  canvas.height = 640;
+  canvas.style.width = Math.floor(480 * scale) + 'px';
+  canvas.style.height = Math.floor(640 * scale) + 'px';
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+// ─── Audio ───
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let audioCtx;
+function ensureAudio() { if (!audioCtx) audioCtx = new AudioCtx(); }
+
+function playSound(freq, dur, type = 'square', vol = 0.1) {
+  ensureAudio();
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  o.frequency.exponentialRampToValueAtTime(Math.max(freq * 0.3, 20), audioCtx.currentTime + dur);
+  g.gain.setValueAtTime(vol, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+  o.connect(g); g.connect(audioCtx.destination);
+  o.start(); o.stop(audioCtx.currentTime + dur);
+}
+
+function sfxShoot()   { playSound(880, 0.07, 'square', 0.06); }
+function sfxHit()     { playSound(220, 0.15, 'sawtooth', 0.08); }
+function sfxExplode() { playSound(80, 0.35, 'sawtooth', 0.12); }
+function sfxDive()    { playSound(500, 0.12, 'triangle', 0.06); }
+function sfxPowerup() { playSound(660, 0.08); setTimeout(() => playSound(880, 0.08), 70); setTimeout(() => playSound(1100, 0.12), 140); }
+function sfxDie()     { playSound(300, 0.5, 'sawtooth', 0.12); setTimeout(() => playSound(150, 0.5, 'sawtooth', 0.1), 200); }
+
+// ─── Colors ───
+const NEON_PINK   = '#ff00c8';
+const NEON_BLUE   = '#00d4ff';
+const NEON_GREEN  = '#39ff14';
+const NEON_YELLOW = '#ffe600';
+const NEON_ORANGE = '#ff6600';
+const NEON_RED    = '#ff2244';
+const NEON_PURPLE = '#cc44ff';
+const BG_COLOR    = '#0d0015';
+const CANYON_DARK  = '#110822';
+const CANYON_MID   = '#1a0e33';
+const CANYON_EDGE  = '#3a1566';
+
+// ─── Game State ───
+let state = 'title';
+let score = 0, highScore = 0, lives = 3, level = 1, levelTimer = 0;
+let arcadeScoreSubmitted = false;
+let screenShake = 0, slowmo = 0, flashWhite = 0;
+
+// ─── Canyon Terrain ───
+const CANYON_SEGMENTS = 40;
+const CANYON_SEG_H = 20;
+let canyonLeft = [];
+let canyonRight = [];
+let canyonScrollY = 0;
+let canyonTargetWidth = 380;
+let canyonWidth = 380;
+let canyonCenterX = 240;
+let canyonTargetCX = 240;
+
+function initCanyon() {
+  canyonLeft = []; canyonRight = [];
+  canyonWidth = 380; canyonTargetWidth = 380;
+  canyonCenterX = 240; canyonTargetCX = 240;
+  for (let i = 0; i < CANYON_SEGMENTS + 5; i++) {
+    pushCanyonSegment();
+  }
+}
+
+function pushCanyonSegment() {
+  // Slowly drift canyon width and center
+  if (Math.random() < 0.08) canyonTargetWidth = 220 + Math.random() * 180;
+  if (Math.random() < 0.06) canyonTargetCX = 180 + Math.random() * 120;
+  canyonWidth += (canyonTargetWidth - canyonWidth) * 0.04;
+  canyonCenterX += (canyonTargetCX - canyonCenterX) * 0.03;
+  // Level narrows canyons slightly
+  const lvlNarrow = Math.max(0, Math.min(80, level * 5));
+  const w = Math.max(160, canyonWidth - lvlNarrow);
+  const leftEdge = canyonCenterX - w / 2;
+  const rightEdge = canyonCenterX + w / 2;
+  canyonLeft.push(Math.max(0, leftEdge + (Math.random() - 0.5) * 12));
+  canyonRight.push(Math.min(480, rightEdge + (Math.random() - 0.5) * 12));
+}
+
+function updateCanyon(dt) {
+  const speed = 1.2 + level * 0.08;
+  canyonScrollY += speed * dt;
+  while (canyonScrollY >= CANYON_SEG_H) {
+    canyonScrollY -= CANYON_SEG_H;
+    canyonLeft.shift();
+    canyonRight.shift();
+    pushCanyonSegment();
+  }
+}
+
+function drawCanyon() {
+  const offY = -canyonScrollY;
+  for (let i = 0; i < CANYON_SEGMENTS; i++) {
+    const y = offY + i * CANYON_SEG_H;
+    if (y > 650 || y + CANYON_SEG_H < -10) continue;
+    const lx = canyonLeft[i] || 0;
+    const rx = canyonRight[i] || 480;
+    const lxN = canyonLeft[i + 1] || lx;
+    const rxN = canyonRight[i + 1] || rx;
+
+    // Left wall
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(lx, y);
+    ctx.lineTo(lxN, y + CANYON_SEG_H);
+    ctx.lineTo(0, y + CANYON_SEG_H);
+    ctx.closePath();
+    ctx.fillStyle = CANYON_DARK;
+    ctx.fill();
+
+    // Left edge glow
+    ctx.beginPath();
+    ctx.moveTo(lx, y);
+    ctx.lineTo(lxN, y + CANYON_SEG_H);
+    ctx.strokeStyle = CANYON_EDGE;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = NEON_PURPLE;
+    ctx.shadowBlur = 8;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Left inner edge highlight
+    ctx.beginPath();
+    ctx.moveTo(lx - 6, y);
+    ctx.lineTo(lxN - 6, y + CANYON_SEG_H);
+    ctx.strokeStyle = CANYON_MID;
+    ctx.lineWidth = 6;
+    ctx.stroke();
+
+    // Right wall
+    ctx.beginPath();
+    ctx.moveTo(480, y);
+    ctx.lineTo(rx, y);
+    ctx.lineTo(rxN, y + CANYON_SEG_H);
+    ctx.lineTo(480, y + CANYON_SEG_H);
+    ctx.closePath();
+    ctx.fillStyle = CANYON_DARK;
+    ctx.fill();
+
+    // Right edge glow
+    ctx.beginPath();
+    ctx.moveTo(rx, y);
+    ctx.lineTo(rxN, y + CANYON_SEG_H);
+    ctx.strokeStyle = CANYON_EDGE;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = NEON_PURPLE;
+    ctx.shadowBlur = 8;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    ctx.beginPath();
+    ctx.moveTo(rx + 6, y);
+    ctx.lineTo(rxN + 6, y + CANYON_SEG_H);
+    ctx.strokeStyle = CANYON_MID;
+    ctx.lineWidth = 6;
+    ctx.stroke();
+  }
+}
+
+// Canyon collision for player
+function getCanyonBounds(y) {
+  const idx = Math.floor((y + canyonScrollY) / CANYON_SEG_H);
+  const safeIdx = Math.max(0, Math.min(idx, canyonLeft.length - 1));
+  return { left: (canyonLeft[safeIdx] || 0) + 10, right: (canyonRight[safeIdx] || 480) - 10 };
+}
+
+// ─── Stars ───
+const stars = [];
+for (let i = 0; i < 60; i++) {
+  stars.push({ x: Math.random() * 480, y: Math.random() * 640, s: Math.random() * 1.5 + 0.5, sp: Math.random() * 1 + 0.3 });
+}
+
+// ─── Player ───
+const player = { x: 240, y: 570, w: 32, h: 28, speed: 5, shootCD: 0, invincible: 0, powerLevel: 0, powerTimer: 0 };
+
+let bullets = [], enemyBullets = [], enemies = [], particles = [], powerups = [];
+
+// ─── Input ───
+const keys = {};
+window.addEventListener('keydown', e => { keys[e.key] = true; ensureAudio(); });
+window.addEventListener('keyup', e => { keys[e.key] = false; });
+
+let touchLeft = false, touchRight = false, touchFire = false;
+function addTouch(id, setter) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('touchstart', e => { e.preventDefault(); setter(true); ensureAudio(); });
+  el.addEventListener('touchend', e => { e.preventDefault(); setter(false); });
+  el.addEventListener('touchcancel', e => { e.preventDefault(); setter(false); });
+}
+addTouch('btn-left', v => touchLeft = v);
+addTouch('btn-right', v => touchRight = v);
+addTouch('btn-fire', v => touchFire = v);
+
+canvas.addEventListener('click', () => { ensureAudio(); if (state === 'title' || state === 'gameover') startGame(); });
+canvas.addEventListener('touchstart', () => ensureAudio());
+
+// ─── Sprites ───
+function drawPixelSprite(x, y, sprite, scale, colors) {
+  for (let row = 0; row < sprite.length; row++) {
+    for (let col = 0; col < sprite[row].length; col++) {
+      const val = sprite[row][col];
+      if (val > 0) {
+        ctx.fillStyle = colors[val - 1] || '#fff';
+        ctx.fillRect(Math.floor(x + col * scale), Math.floor(y + row * scale), scale, scale);
+      }
+    }
+  }
+}
+
+const SHIP_SPRITE = [
+  [0,0,0,0,1,0,0,0,0],
+  [0,0,0,1,2,1,0,0,0],
+  [0,0,0,1,2,1,0,0,0],
+  [0,0,1,2,2,2,1,0,0],
+  [0,1,1,2,3,2,1,1,0],
+  [1,1,2,2,3,2,2,1,1],
+  [1,2,2,3,3,3,2,2,1],
+  [1,0,1,1,1,1,1,0,1],
+];
+const SHIP_COLORS = [NEON_BLUE, '#0088cc', NEON_PINK];
+
+const ENEMY_A = [
+  [0,0,1,0,0,0,1,0,0],
+  [0,0,0,1,0,1,0,0,0],
+  [0,0,1,1,1,1,1,0,0],
+  [0,1,1,2,1,2,1,1,0],
+  [1,1,1,1,1,1,1,1,1],
+  [1,0,1,1,1,1,1,0,1],
+  [1,0,1,0,0,0,1,0,1],
+  [0,0,0,1,0,1,0,0,0],
+];
+const ENEMY_B = [
+  [0,0,0,1,1,1,0,0,0],
+  [0,1,1,2,2,2,1,1,0],
+  [1,1,2,2,1,2,2,1,1],
+  [1,1,1,1,1,1,1,1,1],
+  [0,1,1,1,1,1,1,1,0],
+  [0,0,1,0,1,0,1,0,0],
+  [0,1,0,0,0,0,0,1,0],
+];
+const ENEMY_C = [
+  [0,0,1,1,1,1,1,0,0],
+  [0,1,2,1,1,1,2,1,0],
+  [1,2,2,2,2,2,2,2,1],
+  [1,1,2,1,2,1,2,1,1],
+  [1,1,1,1,1,1,1,1,1],
+  [0,0,1,0,0,0,1,0,0],
+  [0,1,0,0,0,0,0,1,0],
+  [1,0,0,0,0,0,0,0,1],
+];
+
+const ENEMY_TYPES = [
+  { sprite: ENEMY_A, colors: [NEON_GREEN, NEON_RED], hp: 1, pts: 100, shootRate: 0.003 },
+  { sprite: ENEMY_B, colors: [NEON_ORANGE, NEON_YELLOW], hp: 2, pts: 200, shootRate: 0.005 },
+  { sprite: ENEMY_C, colors: [NEON_RED, NEON_PINK], hp: 3, pts: 300, shootRate: 0.007 },
+];
+
+// ─── Dive Patterns (Galaxians-style) ───
+// Each pattern is an array of {dx, dy} offsets relative to start, forming a swooping path
+function generateDivePath(startX, startY, targetX, targetY) {
+  const path = [];
+  const steps = 120;
+  // Swooping bezier: go out to one side, curve down towards player, loop back up or exit bottom
+  const sideDir = (Math.random() < 0.5 ? -1 : 1);
+  const cx1 = startX + sideDir * (100 + Math.random() * 120);
+  const cy1 = startY + 80 + Math.random() * 60;
+  const cx2 = targetX - sideDir * (60 + Math.random() * 80);
+  const cy2 = targetY - 40;
+  const endX = targetX + sideDir * (Math.random() * 100 - 50);
+  const endY = 680; // exit bottom
+
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const u = 1 - t;
+    // Cubic bezier
+    const x = u*u*u*startX + 3*u*u*t*cx1 + 3*u*t*t*cx2 + t*t*t*endX;
+    const y = u*u*u*startY + 3*u*u*t*cy1 + 3*u*t*t*cy2 + t*t*t*endY;
+    path.push({ x, y });
+  }
+  return path;
+}
+
+function generateLoopPath(startX, startY) {
+  const path = [];
+  const steps = 180;
+  const loopR = 60 + Math.random() * 40;
+  const dir = Math.random() < 0.5 ? 1 : -1;
+  const descentSpeed = 2.5;
+
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const angle = t * Math.PI * 2.5 * dir; // 2.5 rotations for a nice swoop
+    const descent = t * 400;
+    const x = startX + Math.sin(angle) * loopR * (1 + t * 0.5);
+    const y = startY + descent - Math.cos(angle) * loopR * 0.5;
+    path.push({ x: Math.max(10, Math.min(470, x)), y });
+  }
+  return path;
+}
+
+// ─── Spawn Wave ───
+function spawnWave() {
+  const rows = Math.min(3 + Math.floor(level / 2), 5);
+  const cols = Math.min(6 + Math.floor(level / 3), 9);
+  const typeIdx = Math.min(Math.floor((level - 1) / 2), 2);
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const t = Math.min(r <= 0 ? typeIdx : Math.max(typeIdx - 1, 0), 2);
+      const et = ENEMY_TYPES[t];
+      enemies.push({
+        x: 40 + c * 46, y: -40 - r * 44,
+        w: 32, h: 28, type: t,
+        hp: et.hp + Math.floor(level / 4),
+        maxHp: et.hp + Math.floor(level / 4),
+        pts: et.pts + level * 10,
+        shootRate: et.shootRate + level * 0.0004,
+        dir: 1,
+        homeX: 40 + c * 46,
+        homeY: 55 + r * 44,
+        entered: false, flash: 0,
+        bobPhase: Math.random() * Math.PI * 2,
+        // Dive state
+        diving: false,
+        divePath: null,
+        diveStep: 0,
+        diveCooldown: 200 + Math.random() * 300,
+        returningHome: false,
+      });
+    }
+  }
+}
+
+// ─── Particles ───
+function spawnExplosion(x, y, color, count = 12) {
+  for (let i = 0; i < count; i++) {
+    const angle = (Math.PI * 2 / count) * i + Math.random() * 0.5;
+    const speed = Math.random() * 4 + 1.5;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+      life: 1, decay: Math.random() * 0.03 + 0.02,
+      size: Math.random() * 4 + 2, color,
+    });
+  }
+}
+
+// ─── Start Game ───
+function startGame() {
+  state = 'playing';
+  arcadeScoreSubmitted = false;
+  score = 0; lives = 3; level = 1; levelTimer = 0;
+  player.x = 240; player.y = 570;
+  player.invincible = 0; player.powerLevel = 0; player.powerTimer = 0;
+  bullets = []; enemyBullets = []; enemies = []; particles = []; powerups = [];
+  initCanyon();
+  spawnWave();
+}
+
+// ─── Update ───
+function update() {
+  const dt = slowmo > 0 ? 0.5 : 1;
+  if (slowmo > 0) slowmo--;
+  if (screenShake > 0) screenShake--;
+  if (flashWhite > 0) flashWhite--;
+
+  if (state !== 'playing') return;
+
+  levelTimer++;
+  updateCanyon(dt);
+
+  // Player movement
+  let moving = 0;
+  if (keys['ArrowLeft'] || keys['a'] || touchLeft) moving -= 1;
+  if (keys['ArrowRight'] || keys['d'] || touchRight) moving += 1;
+  player.x += moving * player.speed * dt;
+
+  // Constrain to canyon
+  const bounds = getCanyonBounds(player.y);
+  player.x = Math.max(bounds.left + 16, Math.min(bounds.right - 16, player.x));
+
+  if (player.invincible > 0) player.invincible--;
+  if (player.powerTimer > 0) { player.powerTimer--; } else { player.powerLevel = 0; }
+
+  // Shooting
+  player.shootCD -= dt;
+  if ((keys[' '] || keys['ArrowUp'] || keys['z'] || touchFire) && player.shootCD <= 0) {
+    const cd = player.powerLevel >= 2 ? 6 : player.powerLevel >= 1 ? 8 : 12;
+    player.shootCD = cd;
+    sfxShoot();
+    bullets.push({ x: player.x, y: player.y - 14, vy: -8, vx: 0, color: NEON_PINK, dmg: 1 });
+    if (player.powerLevel >= 1) {
+      bullets.push({ x: player.x - 10, y: player.y - 8, vy: -7, vx: -1, color: NEON_BLUE, dmg: 1 });
+      bullets.push({ x: player.x + 10, y: player.y - 8, vy: -7, vx: 1, color: NEON_BLUE, dmg: 1 });
+    }
+    if (player.powerLevel >= 2) {
+      bullets.push({ x: player.x - 18, y: player.y - 4, vy: -6, vx: -2, color: NEON_GREEN, dmg: 1 });
+      bullets.push({ x: player.x + 18, y: player.y - 4, vy: -6, vx: 2, color: NEON_GREEN, dmg: 1 });
+    }
+  }
+
+  // Update bullets
+  bullets = bullets.filter(b => {
+    b.x += (b.vx || 0) * dt;
+    b.y += b.vy * dt;
+    return b.y > -10 && b.x > -10 && b.x < 490;
+  });
+
+  // Update enemy bullets
+  enemyBullets = enemyBullets.filter(b => {
+    b.x += (b.vx || 0) * dt;
+    b.y += b.vy * dt;
+    return b.y < 660 && b.y > -10;
+  });
+
+  // Update enemies
+  let edgeHit = false;
+  const diveChance = 0.0008 + level * 0.0003;
+  const divingCount = enemies.filter(e => e.diving).length;
+  const maxDivers = Math.min(2 + Math.floor(level / 2), 6);
+
+  enemies.forEach(e => {
+    if (!e.entered) {
+      // Fly into formation
+      e.y += 2.5 * dt;
+      if (e.y >= e.homeY) { e.y = e.homeY; e.entered = true; }
+    } else if (e.diving) {
+      // ─── GALAXIANS DIVE ───
+      e.diveStep += dt;
+      const idx = Math.min(Math.floor(e.diveStep), (e.divePath ? e.divePath.length - 1 : 0));
+      if (e.divePath && idx < e.divePath.length) {
+        e.x = e.divePath[idx].x;
+        e.y = e.divePath[idx].y;
+        // Shoot more aggressively while diving
+        if (Math.random() < 0.025 * dt) {
+          const dx = player.x - e.x, dy = player.y - e.y;
+          const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+          enemyBullets.push({
+            x: e.x + e.w / 2, y: e.y + e.h,
+            vx: (dx / dist) * 3.5, vy: (dy / dist) * 3.5,
+            color: NEON_RED,
+          });
+        }
+      }
+      // Dive complete — return to formation
+      if (!e.divePath || e.diveStep >= e.divePath.length) {
+        e.diving = false;
+        e.returningHome = true;
+        // Respawn at top if exited screen
+        if (e.y > 640) { e.y = -30; e.x = e.homeX; }
+      }
+    } else if (e.returningHome) {
+      // Fly back to home position
+      const dx = e.homeX - e.x, dy = e.homeY - e.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      if (dist < 3) {
+        e.x = e.homeX; e.y = e.homeY;
+        e.returningHome = false;
+        e.diveCooldown = 200 + Math.random() * 400;
+      } else {
+        e.x += (dx / dist) * 3 * dt;
+        e.y += (dy / dist) * 3 * dt;
+      }
+    } else {
+      // Normal formation movement
+      e.homeX += e.dir * (0.5 + level * 0.08) * dt;
+      e.x = e.homeX;
+      e.y = e.homeY + Math.sin(e.bobPhase) * 3;
+      e.bobPhase += 0.03;
+      if (e.homeX < 25 || e.homeX > 455) edgeHit = true;
+
+      // Decide to dive
+      e.diveCooldown -= dt;
+      if (e.diveCooldown <= 0 && divingCount < maxDivers && Math.random() < diveChance * dt) {
+        e.diving = true;
+        e.diveStep = 0;
+        sfxDive();
+        // Pick dive pattern
+        if (Math.random() < 0.5) {
+          e.divePath = generateDivePath(e.x, e.y, player.x, player.y);
+        } else {
+          e.divePath = generateLoopPath(e.x, e.y);
+        }
+      }
+
+      // Normal shooting
+      if (Math.random() < e.shootRate * dt) {
+        enemyBullets.push({
+          x: e.x + e.w / 2 - 2, y: e.y + e.h,
+          vy: 3 + level * 0.25, vx: (Math.random() - 0.5) * 1.2,
+          color: NEON_YELLOW,
+        });
+      }
+    }
+    if (e.flash > 0) e.flash--;
+  });
+
+  if (edgeHit) {
+    enemies.forEach(e => {
+      if (e.entered && !e.diving && !e.returningHome) {
+        e.dir *= -1;
+        e.homeY += 6;
+        e.y = e.homeY;
+      }
+    });
+  }
+
+  // Bullet-enemy collision
+  bullets = bullets.filter(b => {
+    let alive = true;
+    enemies.forEach(e => {
+      if (!alive) return;
+      if (b.x > e.x && b.x < e.x + e.w && b.y > e.y && b.y < e.y + e.h) {
+        e.hp -= b.dmg;
+        e.flash = 4;
+        alive = false;
+        sfxHit();
+        if (e.hp <= 0) {
+          score += e.pts;
+          sfxExplode();
+          const ec = ENEMY_TYPES[e.type].colors;
+          spawnExplosion(e.x + e.w / 2, e.y + e.h / 2, ec[0], 16);
+          spawnExplosion(e.x + e.w / 2, e.y + e.h / 2, ec[1] || '#fff', 10);
+          screenShake = 6;
+          flashWhite = 3;
+          // Power-up drop (never downgrade!)
+          if (Math.random() < 0.09) {
+            powerups.push({
+              x: e.x + e.w / 2, y: e.y + e.h / 2,
+              vy: 1.5,
+              type: Math.random() < 0.4 ? 'life' : 'power',
+              // Power pickups carry a level: at least current+1, capped at 2
+              powerValue: Math.min(Math.max(player.powerLevel + 1, 1), 2),
+              life: 350,
+            });
+          }
+        }
+      }
+    });
+    return alive;
+  });
+  enemies = enemies.filter(e => e.hp > 0);
+
+  // Enemy bullet → player
+  if (player.invincible <= 0) {
+    enemyBullets = enemyBullets.filter(b => {
+      if (b.x > player.x - 12 && b.x < player.x + 12 && b.y > player.y - 12 && b.y < player.y + 12) {
+        playerHit();
+        return false;
+      }
+      return true;
+    });
+  }
+
+  // Enemy → player collision
+  if (player.invincible <= 0) {
+    enemies.forEach(e => {
+      if (e.y + e.h > player.y - 14 && e.y < player.y + 14 && e.x + e.w > player.x - 16 && e.x < player.x + 16) {
+        playerHit();
+      }
+    });
+  }
+
+  // Canyon wall → player collision
+  if (player.invincible <= 0) {
+    const cb = getCanyonBounds(player.y);
+    if (player.x - 14 < cb.left || player.x + 14 > cb.right) {
+      playerHit();
+    }
+  }
+
+  // Powerups
+  powerups = powerups.filter(p => {
+    p.y += p.vy * dt;
+    p.life--;
+    if (p.y > 660 || p.life <= 0) return false;
+    if (Math.abs(p.x - player.x) < 20 && Math.abs(p.y - player.y) < 20) {
+      sfxPowerup();
+      if (p.type === 'power') {
+        // ─── NEVER DOWNGRADE ───
+        // Only upgrade if pickup is >= current level, and always refresh timer
+        const newLevel = p.powerValue || 1;
+        if (newLevel >= player.powerLevel) {
+          player.powerLevel = newLevel;
+        }
+        // Always extend timer (adds time, never resets shorter)
+        player.powerTimer = Math.max(player.powerTimer, 600);
+      } else {
+        lives = Math.min(lives + 1, 5);
+      }
+      spawnExplosion(p.x, p.y, p.type === 'power' ? NEON_BLUE : NEON_GREEN, 10);
+      return false;
+    }
+    return true;
+  });
+
+  // Particles
+  particles = particles.filter(p => {
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.vy += 0.05;
+    p.life -= p.decay * dt;
+    return p.life > 0;
+  });
+
+  // Stars
+  stars.forEach(s => { s.y += s.sp * dt; if (s.y > 640) { s.y = 0; s.x = Math.random() * 480; } });
+
+  // Next level
+  if (enemies.length === 0 && state === 'playing') {
+    level++;
+    spawnWave();
+    slowmo = 20;
+  }
+}
+
+function playerHit() {
+  lives--;
+  sfxDie();
+  spawnExplosion(player.x, player.y, NEON_PINK, 20);
+  spawnExplosion(player.x, player.y, NEON_BLUE, 14);
+  screenShake = 14;
+  flashWhite = 6;
+  player.invincible = 90;
+  player.powerLevel = 0;
+  player.powerTimer = 0;
+  enemyBullets = [];
+  if (lives <= 0) {
+    state = 'gameover';
+    if (score > highScore) highScore = score;
+    if (!arcadeScoreSubmitted) {
+      arcadeScoreSubmitted = true;
+      const finalScore = score;
+      setTimeout(() => {
+        import('/scores.js')
+          .then(({ submitScore }) => {
+            const raw = prompt('GAME OVER — Enter initials (max 12):', 'AAA');
+            const name = raw == null ? 'AAA' : raw.trim() || 'AAA';
+            submitScore({ gameId: 'neon-blaster', name, score: finalScore, limit: 10 });
+          })
+          .catch(() => {});
+      }, 0);
+    }
+  }
+}
+
+// ─── Draw ───
+function draw() {
+  const shakeX = screenShake > 0 ? (Math.random() - 0.5) * screenShake * 1.2 : 0;
+  const shakeY = screenShake > 0 ? (Math.random() - 0.5) * screenShake * 1.2 : 0;
+
+  ctx.save();
+  ctx.translate(shakeX, shakeY);
+
+  // Background
+  ctx.fillStyle = BG_COLOR;
+  ctx.fillRect(-10, -10, 500, 660);
+
+  // Stars (behind canyon)
+  stars.forEach(s => {
+    const a = 0.25 + Math.sin(Date.now() * 0.003 + s.x) * 0.25;
+    ctx.fillStyle = `rgba(180, 180, 255, ${a})`;
+    ctx.fillRect(Math.floor(s.x), Math.floor(s.y), Math.ceil(s.s), Math.ceil(s.s));
+  });
+
+  // Canyon
+  if (state === 'playing' || state === 'gameover') {
+    drawCanyon();
+  }
+
+  if (state === 'title') {
+    drawTitle();
+    ctx.restore();
+    return;
+  }
+
+  // Flash white on big kills
+  if (flashWhite > 0) {
+    ctx.fillStyle = `rgba(255,255,255,${flashWhite * 0.06})`;
+    ctx.fillRect(0, 0, 480, 640);
+  }
+
+  // Particles
+  particles.forEach(p => {
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    const sz = Math.ceil(p.size * p.life);
+    ctx.fillRect(Math.floor(p.x - sz / 2), Math.floor(p.y - sz / 2), sz, sz);
+  });
+  ctx.globalAlpha = 1;
+
+  // Enemies
+  enemies.forEach(e => {
+    const et = ENEMY_TYPES[e.type];
+    const bob = (!e.diving && !e.returningHome) ? Math.sin(e.bobPhase) * 3 : 0;
+    // Dive trail
+    if (e.diving) {
+      ctx.fillStyle = et.colors[0];
+      ctx.globalAlpha = 0.15;
+      ctx.fillRect(e.x + 4, e.y + e.h, e.w - 8, 12);
+      ctx.globalAlpha = 0.08;
+      ctx.fillRect(e.x + 8, e.y + e.h + 8, e.w - 16, 10);
+      ctx.globalAlpha = 1;
+    }
+    if (e.flash > 0) {
+      ctx.globalAlpha = 0.5 + Math.sin(Date.now() * 0.05) * 0.5;
+      drawPixelSprite(e.x, e.y + bob, et.sprite, 4, ['#fff', '#fff']);
+      ctx.globalAlpha = 1;
+    } else {
+      drawPixelSprite(e.x, e.y + bob, et.sprite, 4, et.colors);
+    }
+    if (e.maxHp > 1) {
+      const bw = e.w, pct = e.hp / e.maxHp;
+      ctx.fillStyle = '#333';
+      ctx.fillRect(e.x, e.y - 5 + bob, bw, 3);
+      ctx.fillStyle = pct > 0.5 ? NEON_GREEN : pct > 0.25 ? NEON_ORANGE : NEON_RED;
+      ctx.fillRect(e.x, e.y - 5 + bob, bw * pct, 3);
+    }
+  });
+
+  // Player bullets
+  bullets.forEach(b => {
+    ctx.shadowColor = b.color;
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = b.color;
+    ctx.fillRect(b.x - 2, b.y - 6, 4, 12);
+    ctx.shadowBlur = 0;
+  });
+
+  // Enemy bullets
+  enemyBullets.forEach(b => {
+    ctx.shadowColor = b.color || NEON_YELLOW;
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = b.color || NEON_YELLOW;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  });
+
+  // Player
+  if (player.invincible <= 0 || Math.floor(player.invincible / 3) % 2 === 0) {
+    ctx.shadowColor = NEON_BLUE;
+    ctx.shadowBlur = 12;
+    drawPixelSprite(player.x - 18, player.y - 16, SHIP_SPRITE, 4, SHIP_COLORS);
+    ctx.shadowBlur = 0;
+    const flameH = 6 + Math.random() * 6;
+    ctx.fillStyle = NEON_ORANGE;
+    ctx.fillRect(player.x - 4, player.y + 14, 8, flameH);
+    ctx.fillStyle = NEON_YELLOW;
+    ctx.fillRect(player.x - 2, player.y + 14, 4, flameH * 0.7);
+  }
+
+  // Powerups
+  powerups.forEach(p => {
+    const pulse = 1 + Math.sin(Date.now() * 0.01) * 0.2;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.scale(pulse, pulse);
+    ctx.shadowColor = p.type === 'power' ? NEON_BLUE : NEON_GREEN;
+    ctx.shadowBlur = 14;
+    ctx.fillStyle = p.type === 'power' ? NEON_BLUE : NEON_GREEN;
+    ctx.fillRect(-8, -8, 16, 16);
+    ctx.fillStyle = '#fff';
+    ctx.font = '10px "Press Start 2P"';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(p.type === 'power' ? 'P' : '+', 0, 1);
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  });
+
+  drawHUD();
+  if (state === 'gameover') drawGameOver();
+
+  ctx.restore();
+}
+
+function drawTitle() {
+  const t = Date.now() * 0.001;
+  ctx.save();
+  ctx.textAlign = 'center';
+
+  const glowSize = 20 + Math.sin(t * 2) * 8;
+  ctx.shadowColor = NEON_PINK;
+  ctx.shadowBlur = glowSize;
+  ctx.fillStyle = NEON_PINK;
+  ctx.font = '36px "Press Start 2P"';
+  ctx.fillText('NEON', 240, 180);
+  ctx.shadowColor = NEON_BLUE;
+  ctx.fillStyle = NEON_BLUE;
+  ctx.fillText('BLASTER', 240, 230);
+  ctx.shadowBlur = 0;
+
+  ctx.strokeStyle = NEON_PINK;
+  ctx.lineWidth = 2;
+  ctx.shadowColor = NEON_PINK;
+  ctx.shadowBlur = 10;
+  ctx.beginPath(); ctx.moveTo(100, 260); ctx.lineTo(380, 260); ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  ctx.fillStyle = NEON_GREEN;
+  ctx.font = '10px "Press Start 2P"';
+  if (Math.sin(t * 3) > 0) ctx.fillText('PRESS ANY KEY / TAP', 240, 340);
+
+  ctx.fillStyle = '#aaa';
+  ctx.font = '8px "Press Start 2P"';
+  ctx.fillText('ARROWS / A,D = MOVE', 240, 400);
+  ctx.fillText('SPACE / Z = FIRE', 240, 425);
+
+  ctx.fillStyle = '#777';
+  ctx.font = '7px "Press Start 2P"';
+  ctx.fillText('WATCH THE CANYON WALLS!', 240, 460);
+
+  drawPixelSprite(222, 500, SHIP_SPRITE, 4, SHIP_COLORS);
+
+  if (highScore > 0) {
+    ctx.fillStyle = NEON_YELLOW;
+    ctx.font = '10px "Press Start 2P"';
+    ctx.fillText('HI-SCORE: ' + highScore, 240, 570);
+  }
+
+  ctx.fillStyle = '#555';
+  ctx.font = '7px "Press Start 2P"';
+  ctx.fillText('© 1996 NEON SOFT', 240, 615);
+
+  ctx.restore();
+}
+
+function drawHUD() {
+  ctx.save();
+  ctx.textAlign = 'left';
+  ctx.shadowColor = NEON_PINK;
+  ctx.shadowBlur = 6;
+  ctx.fillStyle = NEON_PINK;
+  ctx.font = '10px "Press Start 2P"';
+  ctx.fillText('SCORE', 12, 22);
+  ctx.fillStyle = '#fff';
+  ctx.fillText(String(score).padStart(8, '0'), 12, 40);
+  ctx.shadowBlur = 0;
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = NEON_YELLOW;
+  ctx.shadowColor = NEON_YELLOW;
+  ctx.shadowBlur = 6;
+  ctx.fillText('LV ' + level, 240, 22);
+  ctx.shadowBlur = 0;
+
+  ctx.textAlign = 'right';
+  for (let i = 0; i < lives; i++) {
+    drawPixelSprite(420 + i * 18 - (lives - 1) * 18, 10, SHIP_SPRITE, 2, SHIP_COLORS);
+  }
+
+  if (player.powerLevel > 0) {
+    ctx.textAlign = 'center';
+    const pCol = player.powerLevel >= 2 ? NEON_GREEN : NEON_BLUE;
+    ctx.fillStyle = pCol;
+    ctx.font = '7px "Press Start 2P"';
+    ctx.fillText('POWER ×' + player.powerLevel, 240, 630);
+    const pct = player.powerTimer / 600;
+    ctx.fillStyle = '#222';
+    ctx.fillRect(160, 632, 160, 4);
+    ctx.fillStyle = pCol;
+    ctx.fillRect(160, 632, 160 * pct, 4);
+  }
+
+  ctx.restore();
+}
+
+function drawGameOver() {
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.65)';
+  ctx.fillRect(0, 0, 480, 640);
+
+  ctx.textAlign = 'center';
+  ctx.shadowColor = NEON_RED;
+  ctx.shadowBlur = 20;
+  ctx.fillStyle = NEON_RED;
+  ctx.font = '28px "Press Start 2P"';
+  ctx.fillText('GAME OVER', 240, 260);
+  ctx.shadowBlur = 0;
+
+  ctx.fillStyle = '#fff';
+  ctx.font = '12px "Press Start 2P"';
+  ctx.fillText('SCORE: ' + score, 240, 320);
+
+  if (score >= highScore && highScore > 0) {
+    ctx.fillStyle = NEON_YELLOW;
+    ctx.font = '10px "Press Start 2P"';
+    if (Math.sin(Date.now() * 0.005) > 0) ctx.fillText('NEW HIGH SCORE!', 240, 355);
+  }
+
+  ctx.fillStyle = NEON_GREEN;
+  ctx.font = '9px "Press Start 2P"';
+  if (Math.sin(Date.now() * 0.003) > 0) ctx.fillText('PRESS ANY KEY / TAP', 240, 420);
+
+  ctx.restore();
+}
+
+window.addEventListener('keydown', e => {
+  if (state === 'title' || state === 'gameover') startGame();
+});
+
+let lastTime = 0;
+function gameLoop(timestamp) {
+  if (timestamp - lastTime >= 16) { update(); draw(); lastTime = timestamp; }
+  requestAnimationFrame(gameLoop);
+}
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
