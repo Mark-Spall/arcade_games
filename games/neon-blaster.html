@@ -164,6 +164,12 @@ let score = 0, highScore = 0, lives = 3, level = 1, levelTimer = 0;
 let arcadeScoreSubmitted = false;
 let screenShake = 0, slowmo = 0, flashWhite = 0;
 
+// ─── Progression / Drops ───
+const UPGRADE_START_LEVEL = 5; // permanent firepower begins appearing
+const SHIELD_START_LEVEL  = 6; // shields begin appearing
+const BOMB_START_LEVEL    = 7; // bombs begin appearing
+let levelUpgradeDropAvailable = false; // guaranteed upgrade once per level (while you still need it)
+
 // ─── Canyon Terrain ───
 const CANYON_SEGMENTS = 40;
 const CANYON_SEG_H = 20;
@@ -293,13 +299,28 @@ for (let i = 0; i < 60; i++) {
 }
 
 // ─── Player ───
-const player = { x: 240, y: 570, w: 32, h: 28, speed: 5, shootCD: 0, invincible: 0, powerLevel: 0, powerTimer: 0 };
+const player = {
+  x: 240, y: 570, w: 32, h: 28,
+  speed: 5, shootCD: 0, invincible: 0,
+  // Permanent upgrades (kept after respawn)
+  permPowerLevel: 0, // 0..3
+  shields: 0,        // hits absorbed
+  bombs: 0,          // press B to detonate
+  // Temporary power (timed)
+  powerLevel: 0,     // 0..3 (temporary bonus)
+  powerTimer: 0,
+};
 
 let bullets = [], enemyBullets = [], enemies = [], particles = [], powerups = [];
 
 // ─── Input ───
 const keys = {};
-window.addEventListener('keydown', e => { keys[e.key] = true; ensureAudio(); });
+const justPressed = {};
+window.addEventListener('keydown', e => {
+  if (!keys[e.key]) justPressed[e.key] = true;
+  keys[e.key] = true;
+  ensureAudio();
+});
 window.addEventListener('keyup', e => { keys[e.key] = false; });
 
 let touchLeft = false, touchRight = false, touchFire = false;
@@ -474,10 +495,87 @@ function startGame() {
   arcadeScoreSubmitted = false;
   score = 0; lives = 3; level = 1; levelTimer = 0;
   player.x = 240; player.y = 570;
-  player.invincible = 0; player.powerLevel = 0; player.powerTimer = 0;
+  player.invincible = 0;
+  player.permPowerLevel = 0;
+  player.shields = 0;
+  player.bombs = 0;
+  player.powerLevel = 0; player.powerTimer = 0;
   bullets = []; enemyBullets = []; enemies = []; particles = []; powerups = [];
   initCanyon();
+  levelUpgradeDropAvailable = false;
   spawnWave();
+}
+
+function currentPowerLevel() {
+  return Math.max(player.permPowerLevel, player.powerLevel);
+}
+
+function markLevelDrops() {
+  // If you haven't reached decent firepower yet, guarantee one upgrade drop per level (after the start level)
+  if (level >= UPGRADE_START_LEVEL && player.permPowerLevel < 2) {
+    levelUpgradeDropAvailable = true;
+  } else {
+    levelUpgradeDropAvailable = false;
+  }
+}
+
+function spawnDropFromEnemy(e) {
+  // Keep overall drop rate similar, but diversify types and gate "comeback tools" later.
+  const baseChance = 0.085;
+  const pityUpgrade = levelUpgradeDropAvailable && Math.random() < 0.55; // likely when available
+  const roll = Math.random();
+  if (!pityUpgrade && roll > baseChance) return;
+
+  let type = 'power'; // temporary
+
+  // Guaranteed-ish permanent upgrade, not too early
+  if (pityUpgrade) {
+    type = 'upgrade';
+    levelUpgradeDropAvailable = false;
+  } else if (level >= BOMB_START_LEVEL && Math.random() < 0.20) {
+    type = 'bomb';
+  } else if (level >= SHIELD_START_LEVEL && Math.random() < 0.30) {
+    type = 'shield';
+  } else if (Math.random() < 0.35) {
+    type = 'life';
+  } else if (level >= UPGRADE_START_LEVEL && Math.random() < 0.18) {
+    type = 'upgrade';
+  } else {
+    type = 'power';
+  }
+
+  powerups.push({
+    x: e.x + e.w / 2, y: e.y + e.h / 2,
+    vy: 1.5,
+    type,
+    // Power pickups carry a level: at least current+1, capped at 3
+    powerValue: Math.min(Math.max(currentPowerLevel() + 1, 1), 3),
+    life: 350,
+  });
+}
+
+function detonateBomb() {
+  if (player.bombs <= 0) return;
+  player.bombs--;
+  sfxExplode();
+  screenShake = 18;
+  flashWhite = 10;
+  slowmo = 18;
+
+  // Clear bullets and wipe enemies. Score is reduced to prevent "bomb farming".
+  enemyBullets = [];
+  bullets = [];
+
+  if (enemies.length) {
+    enemies.forEach(e => {
+      const et = ENEMY_TYPES[e.type];
+      const ec = et.colors;
+      spawnExplosion(e.x + e.w / 2, e.y + e.h / 2, ec[0], 14);
+      spawnExplosion(e.x + e.w / 2, e.y + e.h / 2, ec[1] || '#fff', 8);
+      score += Math.floor(e.pts * 0.5);
+    });
+    enemies = [];
+  }
 }
 
 // ─── Update ───
@@ -491,6 +589,11 @@ function update() {
 
   levelTimer++;
   updateCanyon(dt);
+
+  // Bomb (B) — later stage bailout
+  if ((justPressed['b'] || justPressed['B']) && player.bombs > 0) {
+    detonateBomb();
+  }
 
   // Player movement
   let moving = 0;
@@ -508,17 +611,22 @@ function update() {
   // Shooting
   player.shootCD -= dt;
   if ((keys[' '] || keys['ArrowUp'] || keys['z'] || touchFire) && player.shootCD <= 0) {
-    const cd = player.powerLevel >= 2 ? 6 : player.powerLevel >= 1 ? 8 : 12;
+    const p = currentPowerLevel();
+    const cd = p >= 3 ? 5 : p >= 2 ? 6 : p >= 1 ? 8 : 12;
     player.shootCD = cd;
     sfxShoot();
     bullets.push({ x: player.x, y: player.y - 14, vy: -8, vx: 0, color: NEON_PINK, dmg: 1 });
-    if (player.powerLevel >= 1) {
+    if (p >= 1) {
       bullets.push({ x: player.x - 10, y: player.y - 8, vy: -7, vx: -1, color: NEON_BLUE, dmg: 1 });
       bullets.push({ x: player.x + 10, y: player.y - 8, vy: -7, vx: 1, color: NEON_BLUE, dmg: 1 });
     }
-    if (player.powerLevel >= 2) {
+    if (p >= 2) {
       bullets.push({ x: player.x - 18, y: player.y - 4, vy: -6, vx: -2, color: NEON_GREEN, dmg: 1 });
       bullets.push({ x: player.x + 18, y: player.y - 4, vy: -6, vx: 2, color: NEON_GREEN, dmg: 1 });
+    }
+    if (p >= 3) {
+      bullets.push({ x: player.x - 26, y: player.y, vy: -5.5, vx: -2.8, color: NEON_YELLOW, dmg: 1 });
+      bullets.push({ x: player.x + 26, y: player.y, vy: -5.5, vx: 2.8, color: NEON_YELLOW, dmg: 1 });
     }
   }
 
@@ -646,17 +754,7 @@ function update() {
           spawnExplosion(e.x + e.w / 2, e.y + e.h / 2, ec[1] || '#fff', 10);
           screenShake = 6;
           flashWhite = 3;
-          // Power-up drop (never downgrade!)
-          if (Math.random() < 0.09) {
-            powerups.push({
-              x: e.x + e.w / 2, y: e.y + e.h / 2,
-              vy: 1.5,
-              type: Math.random() < 0.4 ? 'life' : 'power',
-              // Power pickups carry a level: at least current+1, capped at 2
-              powerValue: Math.min(Math.max(player.powerLevel + 1, 1), 2),
-              life: 350,
-            });
-          }
+          spawnDropFromEnemy(e);
         }
       }
     });
@@ -700,18 +798,26 @@ function update() {
     if (Math.abs(p.x - player.x) < 20 && Math.abs(p.y - player.y) < 20) {
       sfxPowerup();
       if (p.type === 'power') {
-        // ─── NEVER DOWNGRADE ───
-        // Only upgrade if pickup is >= current level, and always refresh timer
+        // Temporary power: never downgrade, refresh timer
         const newLevel = p.powerValue || 1;
-        if (newLevel >= player.powerLevel) {
-          player.powerLevel = newLevel;
-        }
-        // Always extend timer (adds time, never resets shorter)
+        if (newLevel >= player.powerLevel) player.powerLevel = newLevel;
         player.powerTimer = Math.max(player.powerTimer, 600);
+        spawnExplosion(p.x, p.y, NEON_BLUE, 10);
+      } else if (p.type === 'upgrade') {
+        // Permanent ship upgrade: kept after death
+        const next = Math.min(Math.max(player.permPowerLevel + 1, 1), 3);
+        player.permPowerLevel = Math.max(player.permPowerLevel, next);
+        spawnExplosion(p.x, p.y, NEON_YELLOW, 12);
+      } else if (p.type === 'shield') {
+        player.shields = Math.min(player.shields + 1, 3);
+        spawnExplosion(p.x, p.y, NEON_PURPLE, 12);
+      } else if (p.type === 'bomb') {
+        player.bombs = Math.min(player.bombs + 1, 3);
+        spawnExplosion(p.x, p.y, NEON_ORANGE, 12);
       } else {
         lives = Math.min(lives + 1, 5);
+        spawnExplosion(p.x, p.y, NEON_GREEN, 10);
       }
-      spawnExplosion(p.x, p.y, p.type === 'power' ? NEON_BLUE : NEON_GREEN, 10);
       return false;
     }
     return true;
@@ -731,12 +837,28 @@ function update() {
   // Next level
   if (enemies.length === 0 && state === 'playing') {
     level++;
+    markLevelDrops();
     spawnWave();
     slowmo = 20;
   }
+
+  // clear "just pressed" flags
+  for (const k in justPressed) delete justPressed[k];
 }
 
 function playerHit() {
+  // Shields absorb a hit (late-game comeback tool)
+  if (player.shields > 0) {
+    player.shields--;
+    sfxHit();
+    spawnExplosion(player.x, player.y, NEON_PURPLE, 14);
+    screenShake = Math.max(screenShake, 8);
+    flashWhite = Math.max(flashWhite, 3);
+    player.invincible = 70;
+    enemyBullets = [];
+    return;
+  }
+
   lives--;
   sfxDie();
   spawnExplosion(player.x, player.y, NEON_PINK, 20);
@@ -879,14 +1001,26 @@ function draw() {
     ctx.save();
     ctx.translate(p.x, p.y);
     ctx.scale(pulse, pulse);
-    ctx.shadowColor = p.type === 'power' ? NEON_BLUE : NEON_GREEN;
+    const col =
+      p.type === 'power' ? NEON_BLUE :
+      p.type === 'upgrade' ? NEON_YELLOW :
+      p.type === 'shield' ? NEON_PURPLE :
+      p.type === 'bomb' ? NEON_ORANGE :
+      NEON_GREEN;
+    ctx.shadowColor = col;
     ctx.shadowBlur = 14;
-    ctx.fillStyle = p.type === 'power' ? NEON_BLUE : NEON_GREEN;
+    ctx.fillStyle = col;
     ctx.fillRect(-8, -8, 16, 16);
     ctx.fillStyle = '#fff';
     ctx.font = '10px "Press Start 2P"';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(p.type === 'power' ? 'P' : '+', 0, 1);
+    const label =
+      p.type === 'power' ? 'P' :
+      p.type === 'upgrade' ? 'U' :
+      p.type === 'shield' ? 'S' :
+      p.type === 'bomb' ? 'B' :
+      '+';
+    ctx.fillText(label, 0, 1);
     ctx.shadowBlur = 0;
     ctx.restore();
   });
@@ -928,10 +1062,11 @@ function drawTitle() {
   ctx.font = '8px "Press Start 2P"';
   ctx.fillText('ARROWS / A,D = MOVE', 240, 400);
   ctx.fillText('SPACE / Z = FIRE', 240, 425);
+  ctx.fillText('B = BOMB (IF HELD)', 240, 450);
 
   ctx.fillStyle = '#777';
   ctx.font = '7px "Press Start 2P"';
-  ctx.fillText('WATCH THE CANYON WALLS!', 240, 460);
+  ctx.fillText('WATCH THE CANYON WALLS!', 240, 475);
 
   drawPixelSprite(222, 500, SHIP_SPRITE, 4, SHIP_COLORS);
 
@@ -972,17 +1107,30 @@ function drawHUD() {
     drawPixelSprite(420 + i * 18 - (lives - 1) * 18, 10, SHIP_SPRITE, 2, SHIP_COLORS);
   }
 
-  if (player.powerLevel > 0) {
+  // Right-side status (bombs / shields)
+  ctx.shadowBlur = 0;
+  ctx.font = '7px "Press Start 2P"';
+  ctx.fillStyle = NEON_ORANGE;
+  if (player.bombs > 0) ctx.fillText('B×' + player.bombs, 468, 54);
+  ctx.fillStyle = NEON_PURPLE;
+  if (player.shields > 0) ctx.fillText('S×' + player.shields, 468, 70);
+
+  // Power display: permanent tier + temporary boost
+  if (player.permPowerLevel > 0 || player.powerLevel > 0) {
     ctx.textAlign = 'center';
-    const pCol = player.powerLevel >= 2 ? NEON_GREEN : NEON_BLUE;
+    const cur = currentPowerLevel();
+    const pCol = cur >= 3 ? NEON_YELLOW : cur >= 2 ? NEON_GREEN : cur >= 1 ? NEON_BLUE : '#888';
     ctx.fillStyle = pCol;
     ctx.font = '7px "Press Start 2P"';
-    ctx.fillText('POWER ×' + player.powerLevel, 240, 630);
-    const pct = player.powerTimer / 600;
-    ctx.fillStyle = '#222';
-    ctx.fillRect(160, 632, 160, 4);
-    ctx.fillStyle = pCol;
-    ctx.fillRect(160, 632, 160 * pct, 4);
+    const temp = player.powerLevel > player.permPowerLevel;
+    ctx.fillText(temp ? ('BOOST ×' + player.powerLevel) : ('SHIP ×' + player.permPowerLevel), 240, 624);
+    if (player.powerTimer > 0) {
+      const pct = player.powerTimer / 600;
+      ctx.fillStyle = '#222';
+      ctx.fillRect(160, 632, 160, 4);
+      ctx.fillStyle = NEON_BLUE;
+      ctx.fillRect(160, 632, 160 * pct, 4);
+    }
   }
 
   ctx.restore();

@@ -128,23 +128,24 @@ let lasers = []; // Player auto-fire
 let inputSeq = [];
 const SYM = { 'U':'▲', 'D':'▼', 'L':'◀', 'R':'▶' };
 const STRATAGEMS = [
-  { name: 'STRIKE', color: '#ff003c', desc: 'AOE BOMB', baseLen: 5 },
-  { name: 'BEAM',   color: '#00ffff', desc: 'CROSS LASER', baseLen: 5 },
-  { name: 'SHIELD', color: '#39ff14', desc: 'INVINCIBILITY', baseLen: 4 }
+  { name: 'STRIKE', color: '#ff003c', desc: 'AOE BOMB', baseLen: 4 },
+  { name: 'BEAM',   color: '#00ffff', desc: 'CROSS LASER', baseLen: 3 },
+  { name: 'SHIELD', color: '#39ff14', desc: 'INVINCIBILITY', baseLen: 2 }
 ];
 let COMBOS = STRATAGEMS.map(s => ({ ...s, seq: '', seqArr: [] }));
 let maxSeqLen = 6;
 
 // --- Drops (coded pickups/offers) ---
 const DROP_POOL = [
-  { kind: 'MEDKIT', name: 'MEDKIT', good: true, color: '#39ff14', desc: '+1 HP', baseLen: 4 },
-  { kind: 'OVERCHARGE', name: 'OVERCHARGE', good: true, color: '#ffff00', desc: 'FASTER FIRE', baseLen: 5 },
-  { kind: 'NUKE', name: 'NUKE', good: true, color: '#ff003c', desc: 'BIG BLAST', baseLen: 6 },
-  { kind: 'JAM', name: 'JAM', good: false, color: '#b388ff', desc: 'SLOW + INPUT LAG', baseLen: 5 },
-  { kind: 'TRIBUTE', name: 'TRIBUTE', good: false, color: '#ff7ad9', desc: '-75 SCORE', baseLen: 4 },
+  { kind: 'MEDKIT', name: 'MEDKIT', good: true, color: '#39ff14', desc: '+1 HP', baseLen: 2 },
+  { kind: 'OVERCHARGE', name: 'OVERCHARGE', good: true, color: '#ffff00', desc: 'FASTER FIRE', baseLen: 3 },
+  { kind: 'NUKE', name: 'NUKE', good: true, color: '#ff003c', desc: 'BIG BLAST', baseLen: 4 },
+  { kind: 'JAM', name: 'JAM', good: false, color: '#b388ff', desc: 'SLOW + INPUT LAG', baseLen: 3 },
+  { kind: 'TRIBUTE', name: 'TRIBUTE', good: false, color: '#ff7ad9', desc: '-75 SCORE', baseLen: 2 },
 ];
 let drops = [];
 let nextDropAt = 0;
+let dropPickups = [];
 let fireBoost = 0; // frames
 let jam = 0; // frames
 
@@ -168,7 +169,7 @@ function genSeq(len) {
 
 function recomputeMaxSeqLen() {
   maxSeqLen = Math.max(
-    6,
+    4,
     ...COMBOS.map(c => c.seqArr.length),
     ...(drops.map(d => d.seqArr.length)),
   );
@@ -179,7 +180,7 @@ function rerollCombo(name) {
   if (i < 0) return;
 
   const base = COMBOS[i];
-  const len = base.baseLen + (Math.random() < 0.35 ? 1 : 0); // occasional longer code
+  const len = Math.min(4, Math.max(2, base.baseLen + (Math.random() < 0.35 ? 1 : 0)));
 
   let attempt = 0;
   while (attempt++ < 50) {
@@ -208,7 +209,7 @@ function rerollDrop(dropId) {
   const i = drops.findIndex(d => d.id === dropId);
   if (i < 0) return;
   const base = drops[i];
-  const len = base.baseLen + (Math.random() < 0.25 ? 1 : 0);
+  const len = Math.min(4, Math.max(2, base.baseLen + (Math.random() < 0.25 ? 1 : 0)));
   let attempt = 0;
   while (attempt++ < 60) {
     const seqArr = genSeq(len);
@@ -221,19 +222,36 @@ function rerollDrop(dropId) {
   }
 }
 
-function addDropOffer() {
-  if (drops.length >= 2) return;
+function spawnDropPickup() {
+  if (dropPickups.length >= 3) return;
   const base = DROP_POOL[Math.floor(Math.random() * DROP_POOL.length)];
-  const id = `${base.kind}-${Math.random().toString(16).slice(2)}`;
-  const offer = {
+  const id = `${base.kind}-p-${Math.random().toString(16).slice(2)}`;
+  const x = 30 + Math.random() * (cv.width - 60);
+  const y = 70 + Math.random() * (cv.height - 140);
+  dropPickups.push({
     id,
     ...base,
+    x, y,
+    ttl: 60 * 10, // time on field
+    bob: Math.random() * Math.PI * 2,
+  });
+}
+
+function pickupToOffer(pickup) {
+  if (drops.length >= 3) return; // activation queue cap
+  const id = `${pickup.kind}-${Math.random().toString(16).slice(2)}`;
+  const offer = {
+    id,
+    ...pickup,
     seq: '',
     seqArr: [],
-    expires: 60 * 8, // ~8 seconds at 60fps
+    expires: 60 * 10, // time to activate after pickup
   };
-  drops.unshift(offer); // add to top
+  delete offer.x; delete offer.y; delete offer.ttl; delete offer.bob;
+  drops.unshift(offer); // add to top to activate
   rerollDrop(id);
+  spawnParticle(p.x, p.y, pickup.color, 12, 3);
+  shake = Math.max(shake, 6);
 }
 
 function applyDrop(d) {
@@ -363,6 +381,7 @@ function initGame() {
   state = 'PLAY';
   arcadeScoreSubmitted = false;
   drops = [];
+  dropPickups = [];
   fireBoost = 0;
   jam = 0;
   scrambleAllCombos();
@@ -409,9 +428,9 @@ function update() {
   if(fireBoost > 0) fireBoost--;
   if(jam > 0) jam--;
 
-  // Drops: spawn + expire
+  // Drops: spawn pickups + manage activation queue expiry
   if (frames >= nextDropAt) {
-    addDropOffer();
+    spawnDropPickup();
     const pace = Math.max(240, 420 - Math.floor(frames / 10)); // slowly increases pressure
     nextDropAt = frames + (pace + Math.floor(Math.random() * 120));
     recomputeMaxSeqLen();
@@ -419,6 +438,19 @@ function update() {
   for (let i = drops.length - 1; i >= 0; i--) {
     drops[i].expires--;
     if (drops[i].expires <= 0) drops.splice(i, 1);
+  }
+  for (let i = dropPickups.length - 1; i >= 0; i--) {
+    const d = dropPickups[i];
+    d.ttl--;
+    d.bob += 0.08;
+    // Pickup collision
+    if (Math.hypot(p.y - d.y, p.x - d.x) < 16) {
+      pickupToOffer(d);
+      dropPickups.splice(i, 1);
+      recomputeMaxSeqLen();
+      continue;
+    }
+    if (d.ttl <= 0) dropPickups.splice(i, 1);
   }
 
   // Player Movement
@@ -592,6 +624,28 @@ function draw() {
     ctx.lineTo(e.x - 3, e.y);
     ctx.lineTo(e.x - 6, e.y + 6);
     ctx.fill();
+  });
+
+  // Draw Drop Pickups
+  dropPickups.forEach(d => {
+    const bobY = d.y + Math.sin(d.bob) * 3;
+    ctx.shadowColor = d.color; ctx.shadowBlur = 12;
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath(); ctx.arc(d.x, bobY + 10, 10, 0, Math.PI * 2); ctx.fill();
+
+    ctx.fillStyle = d.color;
+    ctx.beginPath(); ctx.arc(d.x, bobY, 8, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(d.x, bobY, 3, 0, Math.PI * 2); ctx.fill();
+
+    // subtle warning ring for bad drops
+    if (!d.good) {
+      ctx.strokeStyle = d.color;
+      ctx.globalAlpha = 0.7;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(d.x, bobY, 13, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
   });
 
   // Draw Player
