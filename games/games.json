@@ -55,5 +55,13 @@
     "image": "/games/posters/neon-gobbler.svg",
     "description": "Pac-style maze chase: eat pellets, avoid ghosts, power up to hunt.",
     "tags": ["Maze", "Arcade", "Neon"]
+  },
+  {
+    "id": "neon-void-survivor",
+    "title": "Neon Void Survivor",
+    "href": "/games/neon-void-survivor.html",
+    "image": "/games/posters/neon-void-survivor.svg",
+    "description": "Survive the void: orbiting weapons, level-ups, endless swarms.",
+    "tags": ["Survivor", "Arcade", "Neon"]
   }
 ]

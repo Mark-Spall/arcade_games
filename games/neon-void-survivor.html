@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VOID SURVIVOR</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+  
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  
+  body {
+    background: #020108;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    overflow: hidden;
+    font-family: 'Press Start 2P', monospace;
+  }
+  
+  #cab {
+    position: relative;
+    border: 4px solid #111;
+    border-radius: 8px;
+    box-shadow: 
+      0 0 50px rgba(255, 0, 80, 0.2),
+      0 0 100px rgba(0, 255, 200, 0.1),
+      inset 0 0 40px rgba(0, 0, 0, 0.9);
+    background: #050505;
+    padding: 8px;
+  }
+  
+  #cv {
+    display: block;
+    border-radius: 4px;
+    image-rendering: pixelated;
+    background: #0a0510;
+  }
+  
+  #crt {
+    position: absolute;
+    top: 8px; left: 8px; right: 8px; bottom: 8px;
+    border-radius: 4px;
+    pointer-events: none;
+    z-index: 10;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(0, 0, 0, 0.15) 0px,
+      rgba(0, 0, 0, 0.15) 1px,
+      transparent 1px,
+      transparent 2px
+    );
+    animation: flicker 0.15s infinite;
+  }
+  
+  #crt::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 4px;
+    background: radial-gradient(ellipse at center, transparent 40%, rgba(20, 0, 0, 0.5) 100%);
+  }
+
+  @keyframes flicker {
+    0% { opacity: 0.95; }
+    50% { opacity: 1; }
+    100% { opacity: 0.98; }
+  }
+</style>
+</head>
+<body>
+
+<div id="cab">
+  <canvas id="cv" width="400" height="500"></canvas>
+  <div id="crt"></div>
+</div>
+
+<script>
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+
+// --- Colors & Aesthetics ---
+const C_BG = '#0a0510';
+const C_PLY = '#00ffff';
+const C_ENM = '#ff003c';
+const C_WPN = '#ffff00';
+const C_EXP = '#b000ff';
+
+// --- Game State ---
+let px = 200, py = 250, pSpeed = 2.5;
+let hp = 100, maxHp = 100;
+let xp = 0, nextXp = 5, level = 1;
+let time = 0, frame = 0, score = 0;
+let state = 'TITLE'; // TITLE, PLAY, OVER
+let keys = { w:0, a:0, s:0, d:0, ArrowUp:0, ArrowLeft:0, ArrowDown:0, ArrowRight:0 };
+let pointer = { active: false, x: 200, y: 250 };
+
+let enemies = [];
+let gems = [];
+let particles = [];
+let arcadeScoreSubmitted = false;
+
+// --- Input Handling ---
+window.addEventListener('keydown', e => { if(keys[e.key] !== undefined) keys[e.key] = 1; });
+window.addEventListener('keyup', e => { if(keys[e.key] !== undefined) keys[e.key] = 0; });
+
+function handlePointer(e) {
+  e.preventDefault();
+  if (state !== 'PLAY') { initGame(); return; }
+  let rect = cv.getBoundingClientRect();
+  let touch = e.touches ? e.touches[0] : e;
+  pointer.x = (touch.clientX - rect.left) * (cv.width / rect.width);
+  pointer.y = (touch.clientY - rect.top) * (cv.height / rect.height);
+  pointer.active = e.type !== 'mouseup' && e.type !== 'touchend';
+}
+cv.addEventListener('mousedown', handlePointer);
+cv.addEventListener('mousemove', e => { if(pointer.active) handlePointer(e); });
+window.addEventListener('mouseup', handlePointer);
+cv.addEventListener('touchstart', handlePointer, {passive: false});
+cv.addEventListener('touchmove', handlePointer, {passive: false});
+window.addEventListener('touchend', handlePointer);
+
+function initGame() {
+  px = 200; py = 250; hp = 100; maxHp = 100;
+  xp = 0; nextXp = 5; level = 1;
+  time = 0; frame = 0; score = 0;
+  enemies = []; gems = []; particles = [];
+  state = 'PLAY';
+  arcadeScoreSubmitted = false;
+}
+
+function queueVoidSurvivorScore(finalScore) {
+  if (arcadeScoreSubmitted) return;
+  arcadeScoreSubmitted = true;
+  const s = Math.floor(Number(finalScore)) || 0;
+  setTimeout(() => {
+    import('/scores.js')
+      .then(({ submitScore }) => {
+        const raw = prompt('HIGH SCORE — Enter initials (max 12):', 'AAA');
+        const name = raw == null ? 'AAA' : raw.trim() || 'AAA';
+        submitScore({ gameId: 'neon-void-survivor', name, score: s, limit: 10 });
+      })
+      .catch(() => {});
+  }, 0);
+}
+
+function spawnParticle(x, y, color, count) {
+  for(let i=0; i<count; i++) {
+    particles.push({
+      x, y, 
+      vx: (Math.random()-0.5)*4, vy: (Math.random()-0.5)*4,
+      life: 20 + Math.random()*10,
+      color
+    });
+  }
+}
+
+function update() {
+  if (state !== 'PLAY') {
+    if ((keys.w || keys.ArrowUp || keys.s) && state !== 'PLAY') initGame();
+    return;
+  }
+  
+  frame++;
+  if (frame % 60 === 0) time++;
+
+  // Movement
+  let dx = 0, dy = 0;
+  if (pointer.active) {
+    let ang = Math.atan2(pointer.y - py, pointer.x - px);
+    let dist = Math.hypot(pointer.y - py, pointer.x - px);
+    if (dist > 5) { dx = Math.cos(ang); dy = Math.sin(ang); }
+  } else {
+    if (keys.w || keys.ArrowUp) dy -= 1;
+    if (keys.s || keys.ArrowDown) dy += 1;
+    if (keys.a || keys.ArrowLeft) dx -= 1;
+    if (keys.d || keys.ArrowRight) dx += 1;
+  }
+  
+  let len = Math.hypot(dx, dy);
+  if (len > 0) { dx /= len; dy /= len; }
+  
+  px += dx * pSpeed; py += dy * pSpeed;
+  px = Math.max(10, Math.min(cv.width-10, px));
+  py = Math.max(10, Math.min(cv.height-10, py));
+
+  // Weapons (Orbiters based on level)
+  let wpnCount = Math.min(level, 8);
+  let orbitRadius = 40 + Math.min(level * 2, 40);
+  let wpnSpeed = time * 3;
+  let weapons = [];
+  for(let i=0; i<wpnCount; i++) {
+    let ang = (wpnSpeed + (i * 360 / wpnCount)) * Math.PI / 180;
+    weapons.push({
+      x: px + Math.cos(ang) * orbitRadius,
+      y: py + Math.sin(ang) * orbitRadius,
+      r: 6
+    });
+  }
+
+  // Spawning Enemies
+  let spawnRate = Math.max(10, 60 - Math.floor(time / 2));
+  if (frame % spawnRate === 0) {
+    let side = Math.floor(Math.random() * 4);
+    let ex = side===0 ? -20 : side===1 ? cv.width+20 : Math.random()*cv.width;
+    let ey = side===2 ? -20 : side===3 ? cv.height+20 : Math.random()*cv.height;
+    enemies.push({ x: ex, y: ey, hp: 1 + Math.floor(time/15), speed: 0.8 + Math.random()*0.5 });
+  }
+
+  // Update Enemies
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    let e = enemies[i];
+    let ang = Math.atan2(py - e.y, px - e.x);
+    e.x += Math.cos(ang) * e.speed;
+    e.y += Math.sin(ang) * e.speed;
+
+    // Hit by Weapon?
+    let hit = false;
+    for (let w of weapons) {
+      if (Math.hypot(w.y - e.y, w.x - e.x) < 15) {
+        e.hp--; hit = true;
+        spawnParticle(e.x, e.y, C_WPN, 2);
+        break; // Only take 1 hit per frame
+      }
+    }
+
+    if (e.hp <= 0) {
+      score += 10;
+      spawnParticle(e.x, e.y, C_ENM, 5);
+      if (Math.random() < 0.6) gems.push({ x: e.x, y: e.y }); // Drop XP
+      enemies.splice(i, 1);
+      continue;
+    }
+
+    // Hit Player?
+    if (Math.hypot(py - e.y, px - e.x) < 12) {
+      hp -= 1;
+      spawnParticle(px, py, C_ENM, 1);
+      if (hp <= 0) {
+        state = 'OVER';
+        queueVoidSurvivorScore(score);
+      }
+    }
+  }
+
+  // Update Gems
+  for (let i = gems.length - 1; i >= 0; i--) {
+    let g = gems[i];
+    let dist = Math.hypot(py - g.y, px - g.x);
+    if (dist < 60) { // Magnet radius
+      let ang = Math.atan2(py - g.y, px - g.x);
+      g.x += Math.cos(ang) * 4;
+      g.y += Math.sin(ang) * 4;
+    }
+    if (dist < 15) { // Collect
+      xp++; score += 5;
+      gems.splice(i, 1);
+      if (xp >= nextXp) {
+        level++; xp = 0; nextXp = Math.floor(nextXp * 1.5);
+        hp = Math.min(maxHp, hp + 20); // Heal on level up
+        spawnParticle(px, py, C_PLY, 20);
+      }
+    }
+  }
+
+  // Update Particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    let p = particles[i];
+    p.x += p.vx; p.y += p.vy;
+    p.life--;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+}
+
+function draw() {
+  ctx.fillStyle = C_BG;
+  ctx.fillRect(0, 0, cv.width, cv.height);
+
+  // Analogue Horror/CRT Glitch Effect
+  ctx.save();
+  if (state === 'PLAY' && Math.random() < 0.02) {
+    ctx.translate((Math.random()-0.5)*6, 0);
+    ctx.fillStyle = 'rgba(255,0,0,0.1)';
+    ctx.fillRect(0, Math.random()*cv.height, cv.width, 10);
+  }
+
+  // Draw Gems
+  ctx.shadowBlur = 10;
+  ctx.shadowColor = C_EXP;
+  ctx.fillStyle = C_EXP;
+  for (let g of gems) {
+    ctx.beginPath(); ctx.arc(g.x, g.y, 3, 0, Math.PI*2); ctx.fill();
+  }
+
+  // Draw Enemies
+  ctx.shadowColor = C_ENM;
+  ctx.fillStyle = C_ENM;
+  for (let e of enemies) {
+    ctx.beginPath();
+    let ang = Math.atan2(py - e.y, px - e.x);
+    ctx.moveTo(e.x + Math.cos(ang)*8, e.y + Math.sin(ang)*8);
+    ctx.lineTo(e.x + Math.cos(ang+2.5)*8, e.y + Math.sin(ang+2.5)*8);
+    ctx.lineTo(e.x + Math.cos(ang-2.5)*8, e.y + Math.sin(ang-2.5)*8);
+    ctx.fill();
+  }
+
+  // Draw Particles
+  ctx.shadowBlur = 5;
+  for (let p of particles) {
+    ctx.fillStyle = p.color;
+    ctx.shadowColor = p.color;
+    ctx.fillRect(p.x, p.y, 2, 2);
+  }
+
+  if (state !== 'TITLE') {
+    // Draw Player
+    ctx.shadowColor = C_PLY;
+    ctx.fillStyle = C_PLY;
+    ctx.fillRect(px - 6, py - 6, 12, 12);
+
+    // Draw Weapons
+    let wpnCount = Math.min(level, 8);
+    let orbitRadius = 40 + Math.min(level * 2, 40);
+    let wpnSpeed = time * 3;
+    ctx.shadowColor = C_WPN;
+    ctx.fillStyle = C_WPN;
+    for(let i=0; i<wpnCount; i++) {
+      let ang = (wpnSpeed + (i * 360 / wpnCount)) * Math.PI / 180;
+      let wx = px + Math.cos(ang) * orbitRadius;
+      let wy = py + Math.sin(ang) * orbitRadius;
+      ctx.beginPath(); ctx.arc(wx, wy, 4, 0, Math.PI*2); ctx.fill();
+    }
+  }
+  ctx.restore(); // Remove glitch transform
+
+  // --- UI ---
+  ctx.shadowBlur = 0;
+  
+  if (state === 'PLAY') {
+    // XP Bar
+    ctx.fillStyle = '#222'; ctx.fillRect(10, 10, cv.width-20, 8);
+    ctx.fillStyle = C_EXP; ctx.fillRect(10, 10, (cv.width-20) * (xp/nextXp), 8);
+    // HP Bar
+    ctx.fillStyle = '#222'; ctx.fillRect(px-15, py+15, 30, 4);
+    ctx.fillStyle = C_ENM; ctx.fillRect(px-15, py+15, 30 * (hp/maxHp), 4);
+    
+    ctx.fillStyle = C_PLY;
+    ctx.font = '10px "Press Start 2P"';
+    ctx.fillText(`LVL:${level}`, 10, 35);
+    ctx.textAlign = 'right';
+    ctx.fillText(score, cv.width-10, 35);
+    ctx.textAlign = 'left';
+  } else if (state === 'TITLE') {
+    ctx.fillStyle = C_PLY; ctx.textAlign = 'center';
+    ctx.shadowColor = C_PLY; ctx.shadowBlur = 15;
+    ctx.font = '22px "Press Start 2P"';
+    ctx.fillText('VOID SURVIVOR', cv.width/2, cv.height/2 - 20);
+    ctx.fillStyle = C_WPN; ctx.font = '10px "Press Start 2P"'; ctx.shadowBlur = 0;
+    if (Math.floor(Date.now() / 500) % 2 === 0) ctx.fillText('TAP OR PRESS W TO START', cv.width/2, cv.height/2 + 30);
+    ctx.textAlign = 'left';
+  } else if (state === 'OVER') {
+    ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(0,0,cv.width,cv.height);
+    ctx.fillStyle = C_ENM; ctx.textAlign = 'center';
+    ctx.shadowColor = C_ENM; ctx.shadowBlur = 20;
+    ctx.font = '26px "Press Start 2P"';
+    ctx.fillText('ASSIMILATED', cv.width/2, cv.height/2 - 20);
+    ctx.fillStyle = '#fff'; ctx.font = '12px "Press Start 2P"'; ctx.shadowBlur = 0;
+    ctx.fillText(`FINAL SCORE: ${score}`, cv.width/2, cv.height/2 + 20);
+    ctx.fillText(`TIME: ${Math.floor(time/60)}:${(time%60).toString().padStart(2,'0')}`, cv.width/2, cv.height/2 + 40);
+    if (Math.floor(Date.now() / 500) % 2 === 0) {
+      ctx.fillStyle = C_WPN; ctx.font = '8px "Press Start 2P"';
+      ctx.fillText('TAP TO REBOOT SYSTEM', cv.width/2, cv.height/2 + 80);
+    }
+    ctx.textAlign = 'left';
+  }
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+</body>
+</html>

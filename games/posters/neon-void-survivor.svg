@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 240" width="400" height="240">
+  <defs>
+    <radialGradient id="vbg" cx="50%" cy="45%" r="70%">
+      <stop offset="0%" stop-color="#13031f"/>
+      <stop offset="55%" stop-color="#060214"/>
+      <stop offset="100%" stop-color="#04010c"/>
+    </radialGradient>
+    <linearGradient id="neon" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00ffff"/>
+      <stop offset="55%" stop-color="#b000ff"/>
+      <stop offset="100%" stop-color="#ff003c"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="400" height="240" fill="url(#vbg)"/>
+
+  <!-- star noise -->
+  <g fill="#ffffff" opacity="0.18">
+    <circle cx="40" cy="50" r="1.2"/><circle cx="88" cy="30" r="1"/>
+    <circle cx="120" cy="74" r="1"/><circle cx="160" cy="36" r="1.1"/>
+    <circle cx="210" cy="60" r="1.2"/><circle cx="260" cy="28" r="1"/>
+    <circle cx="330" cy="70" r="1.1"/><circle cx="360" cy="40" r="1"/>
+    <circle cx="70" cy="170" r="1.1"/><circle cx="130" cy="200" r="1"/>
+    <circle cx="250" cy="190" r="1.2"/><circle cx="310" cy="210" r="1"/>
+  </g>
+
+  <!-- orbit ring -->
+  <circle cx="200" cy="125" r="58" fill="none" stroke="url(#neon)" stroke-width="4" opacity="0.45"/>
+  <circle cx="200" cy="125" r="40" fill="none" stroke="#00ffff" stroke-width="2" opacity="0.25"/>
+
+  <!-- player core -->
+  <rect x="192" y="117" width="16" height="16" rx="2" fill="#00ffff" opacity="0.95"/>
+
+  <!-- orbiters -->
+  <g fill="#ffff00" opacity="0.9">
+    <circle cx="258" cy="125" r="4"/>
+    <circle cx="200" cy="67" r="4"/>
+    <circle cx="142" cy="125" r="4"/>
+    <circle cx="200" cy="183" r="4"/>
+  </g>
+
+  <!-- enemies -->
+  <g fill="#ff003c" opacity="0.85">
+    <path d="M86 150 l10 -8 l10 8 l-10 8 z"/>
+    <path d="M322 92 l10 -8 l10 8 l-10 8 z"/>
+    <path d="M290 172 l8 -6 l8 6 l-8 6 z"/>
+  </g>
+</svg>
