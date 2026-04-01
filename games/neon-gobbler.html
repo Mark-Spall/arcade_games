@@ -195,10 +195,12 @@ class Entity {
     if (this.x % TS === 0 && this.y % TS === 0) {
       let r = this.y / TS, c = this.x / TS;
       // Try next direction
-      let nextR = r + this.nextVy; let nextC = c + this.nextVx;
-      if (nextC < 0) nextC = COLS - 1; if (nextC >= COLS) nextC = 0;
-      if (map[nextR] && map[nextR][nextC] !== 1 && map[nextR][nextC] !== 4) {
-        this.vx = this.nextVx; this.vy = this.nextVy;
+      if (!(this.nextVx === 0 && this.nextVy === 0)) {
+        let nextR = r + this.nextVy; let nextC = c + this.nextVx;
+        if (nextC < 0) nextC = COLS - 1; if (nextC >= COLS) nextC = 0;
+        if (map[nextR] && map[nextR][nextC] !== 1 && map[nextR][nextC] !== 4) {
+          this.vx = this.nextVx; this.vy = this.nextVy;
+        }
       }
       // Stop if hitting a wall
       let currR = r + this.vy; let currC = c + this.vx;
