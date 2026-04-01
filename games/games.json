@@ -79,5 +79,13 @@
     "image": "/games/posters/neon-surge.svg",
     "description": "Neon auto-shooter survival: power up, shield up, ride the waves.",
     "tags": ["Shooter", "Survivor", "Neon"]
+  },
+  {
+    "id": "neon-chrono-pulse",
+    "title": "Neon Chrono Pulse",
+    "href": "/games/neon-chrono-pulse.html",
+    "image": "/games/posters/neon-chrono-pulse.svg",
+    "description": "Time-dilation shooter: stop, aim, then move to unleash the pulse.",
+    "tags": ["Shooter", "Arcade", "Neon"]
   }
 ]
