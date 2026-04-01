@@ -127,22 +127,165 @@ let lasers = []; // Player auto-fire
 // --- Orbital Codes Logic ---
 let inputSeq = [];
 const SYM = { 'U':'▲', 'D':'▼', 'L':'◀', 'R':'▶' };
-const COMBOS = [
-  { name: 'STRIKE', seq: 'U,R,D', color: '#ff003c', desc: 'AOE BOMB' },
-  { name: 'BEAM',   seq: 'L,R,L', color: '#00ffff', desc: 'CROSS LASER' },
-  { name: 'SHIELD', seq: 'D,D,U', color: '#39ff14', desc: 'INVINCIBILITY' }
+const STRATAGEMS = [
+  { name: 'STRIKE', color: '#ff003c', desc: 'AOE BOMB', baseLen: 5 },
+  { name: 'BEAM',   color: '#00ffff', desc: 'CROSS LASER', baseLen: 5 },
+  { name: 'SHIELD', color: '#39ff14', desc: 'INVINCIBILITY', baseLen: 4 }
 ];
+let COMBOS = STRATAGEMS.map(s => ({ ...s, seq: '', seqArr: [] }));
+let maxSeqLen = 6;
+
+// --- Drops (coded pickups/offers) ---
+const DROP_POOL = [
+  { kind: 'MEDKIT', name: 'MEDKIT', good: true, color: '#39ff14', desc: '+1 HP', baseLen: 4 },
+  { kind: 'OVERCHARGE', name: 'OVERCHARGE', good: true, color: '#ffff00', desc: 'FASTER FIRE', baseLen: 5 },
+  { kind: 'NUKE', name: 'NUKE', good: true, color: '#ff003c', desc: 'BIG BLAST', baseLen: 6 },
+  { kind: 'JAM', name: 'JAM', good: false, color: '#b388ff', desc: 'SLOW + INPUT LAG', baseLen: 5 },
+  { kind: 'TRIBUTE', name: 'TRIBUTE', good: false, color: '#ff7ad9', desc: '-75 SCORE', baseLen: 4 },
+];
+let drops = [];
+let nextDropAt = 0;
+let fireBoost = 0; // frames
+let jam = 0; // frames
+
+function randDir() {
+  return (['U', 'D', 'L', 'R'])[Math.floor(Math.random() * 4)];
+}
+
+function genSeq(len) {
+  const out = [];
+  while (out.length < len) {
+    const d = randDir();
+    const a = out[out.length - 1];
+    const b = out[out.length - 2];
+    // avoid trivial autopilot patterns (AAA) and immediate bounces (UDUD / LRLR feel)
+    if (a && d === a) continue;
+    if (b && a && d === b && a !== b) continue;
+    out.push(d);
+  }
+  return out;
+}
+
+function recomputeMaxSeqLen() {
+  maxSeqLen = Math.max(
+    6,
+    ...COMBOS.map(c => c.seqArr.length),
+    ...(drops.map(d => d.seqArr.length)),
+  );
+}
+
+function rerollCombo(name) {
+  const i = COMBOS.findIndex(c => c.name === name);
+  if (i < 0) return;
+
+  const base = COMBOS[i];
+  const len = base.baseLen + (Math.random() < 0.35 ? 1 : 0); // occasional longer code
+
+  let attempt = 0;
+  while (attempt++ < 50) {
+    const seqArr = genSeq(len);
+    const seq = seqArr.join(',');
+    const collides = COMBOS.some((c, idx) => idx !== i && c.seq === seq);
+    if (!collides) {
+      COMBOS[i] = { ...base, seq, seqArr };
+      recomputeMaxSeqLen();
+      return;
+    }
+  }
+}
+
+function scrambleAllCombos() {
+  for (const c of COMBOS) rerollCombo(c.name);
+}
+
+function seqCollides(seq, ignoreDropId = '') {
+  if (COMBOS.some(c => c.seq === seq)) return true;
+  if (drops.some(d => d.id !== ignoreDropId && d.seq === seq)) return true;
+  return false;
+}
+
+function rerollDrop(dropId) {
+  const i = drops.findIndex(d => d.id === dropId);
+  if (i < 0) return;
+  const base = drops[i];
+  const len = base.baseLen + (Math.random() < 0.25 ? 1 : 0);
+  let attempt = 0;
+  while (attempt++ < 60) {
+    const seqArr = genSeq(len);
+    const seq = seqArr.join(',');
+    if (!seqCollides(seq, base.id)) {
+      drops[i] = { ...base, seq, seqArr };
+      recomputeMaxSeqLen();
+      return;
+    }
+  }
+}
+
+function addDropOffer() {
+  if (drops.length >= 2) return;
+  const base = DROP_POOL[Math.floor(Math.random() * DROP_POOL.length)];
+  const id = `${base.kind}-${Math.random().toString(16).slice(2)}`;
+  const offer = {
+    id,
+    ...base,
+    seq: '',
+    seqArr: [],
+    expires: 60 * 8, // ~8 seconds at 60fps
+  };
+  drops.unshift(offer); // add to top
+  rerollDrop(id);
+}
+
+function applyDrop(d) {
+  if (d.kind === 'MEDKIT') {
+    p.hp = Math.min(6, p.hp + 1);
+    spawnParticle(p.x, p.y, '#39ff14', 18, 3);
+  } else if (d.kind === 'OVERCHARGE') {
+    fireBoost = Math.max(fireBoost, 60 * 6);
+    spawnParticle(p.x, p.y, '#ffff00', 20, 3);
+  } else if (d.kind === 'NUKE') {
+    explosions.push({ x: p.x, y: p.y, r: 0, maxR: 200 });
+    shake = 24;
+  } else if (d.kind === 'JAM') {
+    jam = Math.max(jam, 60 * 5);
+    shake = Math.max(shake, 12);
+    spawnParticle(p.x, p.y, '#b388ff', 22, 3);
+  } else if (d.kind === 'TRIBUTE') {
+    score = Math.max(0, score - 75);
+    shake = Math.max(shake, 10);
+    spawnParticle(p.x, p.y, '#ff7ad9', 14, 3);
+  }
+}
 
 function pressDir(dir) {
   if(state !== 'PLAY') return;
+  if (jam > 0 && Math.random() < 0.35) {
+    // jammer eats some inputs; keeps the “panic” feeling without breaking controls entirely
+    return;
+  }
   inputSeq.push(dir);
-  if (inputSeq.length > 6) inputSeq.shift();
+  if (inputSeq.length > maxSeqLen + 1) inputSeq.shift();
   
   let str = inputSeq.join(',');
+
+  // Drops have priority: they’re “time-limited uplinks” and should feel snappy to redeem.
+  for (let i = 0; i < drops.length; i++) {
+    const d = drops[i];
+    if (str.endsWith(d.seq)) {
+      applyDrop(d);
+      drops.splice(i, 1);
+      inputSeq = [];
+      recomputeMaxSeqLen();
+      return;
+    }
+  }
+
   for (let c of COMBOS) {
     if (str.endsWith(c.seq)) {
       triggerOrbital(c.name);
       inputSeq = [];
+      // Re-roll the successful stratagem so it can’t be mindlessly repeated.
+      rerollCombo(c.name);
       break;
     }
   }
@@ -219,6 +362,12 @@ function initGame() {
   inputSeq = []; score = 0; frames = 0; shake = 0;
   state = 'PLAY';
   arcadeScoreSubmitted = false;
+  drops = [];
+  fireBoost = 0;
+  jam = 0;
+  scrambleAllCombos();
+  nextDropAt = 180;
+  recomputeMaxSeqLen();
 }
 
 function queueStarfallScore(finalScore) {
@@ -257,6 +406,20 @@ function update() {
   if (state !== 'PLAY') return;
   frames++;
   if(p.shield > 0) p.shield--;
+  if(fireBoost > 0) fireBoost--;
+  if(jam > 0) jam--;
+
+  // Drops: spawn + expire
+  if (frames >= nextDropAt) {
+    addDropOffer();
+    const pace = Math.max(240, 420 - Math.floor(frames / 10)); // slowly increases pressure
+    nextDropAt = frames + (pace + Math.floor(Math.random() * 120));
+    recomputeMaxSeqLen();
+  }
+  for (let i = drops.length - 1; i >= 0; i--) {
+    drops[i].expires--;
+    if (drops[i].expires <= 0) drops.splice(i, 1);
+  }
 
   // Player Movement
   let dx = 0, dy = 0;
@@ -274,7 +437,8 @@ function update() {
   p.y = Math.max(10, Math.min(cv.height-10, p.y));
 
   // Player Auto-Fire (Weak)
-  if (frames % 25 === 0 && enemies.length > 0) {
+  const fireCd = fireBoost > 0 ? 14 : 25;
+  if (frames % fireCd === 0 && enemies.length > 0) {
     let target = enemies.reduce((a, b) => Math.hypot(a.y-p.y, a.x-p.x) < Math.hypot(b.y-p.y, b.x-p.x) ? a : b);
     let ang = Math.atan2(target.y - p.y, target.x - p.x);
     lasers.push({ x: p.x, y: p.y, vx: Math.cos(ang)*10, vy: Math.sin(ang)*10, life: 60 });
@@ -462,10 +626,30 @@ function draw() {
     let startY = 40;
     COMBOS.forEach(c => {
       ctx.fillStyle = c.color;
-      let seqStr = c.seq.split(',').map(d => SYM[d]).join(' ');
+      let seqStr = (c.seqArr?.length ? c.seqArr : c.seq.split(',')).map(d => SYM[d]).join(' ');
       ctx.fillText(`${c.name}: ${seqStr}`, 10, startY);
       startY += 12;
     });
+
+    // Drops HUD (time-limited uplinks)
+    startY += 4;
+    ctx.fillStyle = 'rgba(233,230,255,0.85)';
+    ctx.fillText('DROPS:', 10, startY);
+    startY += 12;
+    if (!drops.length) {
+      ctx.fillStyle = 'rgba(233,230,255,0.45)';
+      ctx.fillText('--', 10, startY);
+      startY += 12;
+    } else {
+      for (let i = 0; i < Math.min(2, drops.length); i++) {
+        const d = drops[i];
+        ctx.fillStyle = d.color;
+        const seqStr = (d.seqArr?.length ? d.seqArr : d.seq.split(',')).map(x => SYM[x]).join(' ');
+        const bad = d.good ? '' : ' !';
+        ctx.fillText(`${d.name}${bad}: ${seqStr}`, 10, startY);
+        startY += 12;
+      }
+    }
 
     // Input Buffer HUD
     ctx.fillStyle = '#fff';

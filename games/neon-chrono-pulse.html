@@ -433,8 +433,8 @@ function draw() {
   // Background Grid (shifts with player movement to show time flow)
   ctx.strokeStyle = `rgba(0, 255, 255, ${0.05 + timeScale * 0.1})`;
   ctx.lineWidth = 1;
-  let offsetX = -(px * 0.1) % 40;
-  let offsetY = -(py * 0.1) % 40;
+  let offsetX = -(ship.x * 0.1) % 40;
+  let offsetY = -(ship.y * 0.1) % 40;
   for(let x=offsetX; x<cv.width; x+=40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,cv.height); ctx.stroke(); }
   for(let y=offsetY; y<cv.height; y+=40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(cv.width,y); ctx.stroke(); }
 
@@ -496,8 +496,8 @@ function draw() {
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 6]);
     ctx.beginPath();
-    ctx.moveTo(px, py);
-    ctx.lineTo(px + Math.cos(aimAng) * 62, py + Math.sin(aimAng) * 62);
+    ctx.moveTo(ship.x, ship.y);
+    ctx.lineTo(ship.x + Math.cos(aimAng) * 62, ship.y + Math.sin(aimAng) * 62);
     ctx.stroke();
     ctx.setLineDash([]);
   }
