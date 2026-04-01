@@ -63,5 +63,13 @@
     "image": "/games/posters/neon-void-survivor.svg",
     "description": "Survive the void: orbiting weapons, level-ups, endless swarms.",
     "tags": ["Survivor", "Arcade", "Neon"]
+  },
+  {
+    "id": "neon-extractor",
+    "title": "Neon Extractor",
+    "href": "/games/neon-extractor.html",
+    "image": "/games/posters/neon-extractor.svg",
+    "description": "Rescue pods, blast drones, survive the neon void.",
+    "tags": ["Shooter", "Arcade", "Neon"]
   }
 ]

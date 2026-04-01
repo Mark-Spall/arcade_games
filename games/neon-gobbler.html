@@ -191,6 +191,14 @@ class Entity {
     this.nextVx = 0; this.nextVy = 0;
   }
   update() {
+    // Keep movement aligned to the tile grid so wall checks trigger.
+    const snap = (v) => {
+      const m = Math.round(v / TS) * TS;
+      return Math.abs(v - m) <= this.speed + 0.001 ? m : v;
+    };
+    this.x = snap(this.x);
+    this.y = snap(this.y);
+
     // Snap to grid intersections to turn
     if (this.x % TS === 0 && this.y % TS === 0) {
       let r = this.y / TS, c = this.x / TS;
@@ -226,8 +234,8 @@ function resetEntities() {
   pac.angle = 0; pac.mouthOpen = 0; pac.mouthDir = 1;
 
   ghosts = [
-    new Entity(8, 9, 1.5), new Entity(9, 9, 1.5),
-    new Entity(10, 9, 1.5), new Entity(9, 7, 1.5)
+    new Entity(8, 9, 1.25), new Entity(9, 9, 1.25),
+    new Entity(10, 9, 1.25), new Entity(9, 7, 1.25)
   ];
   ghosts.forEach((g, i) => {
     g.color = C_GHOSTS[i];
