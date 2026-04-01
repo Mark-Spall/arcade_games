@@ -1,0 +1,1139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NEON HOP</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #040410;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    overflow: hidden;
+    font-family: 'Press Start 2P', monospace;
+    touch-action: none;
+  }
+
+  #cab {
+    position: relative;
+    border: 3px solid #1a2a1a;
+    border-radius: 10px;
+    box-shadow:
+      0 0 40px rgba(0, 255, 100, 0.12),
+      0 0 80px rgba(255, 100, 0, 0.06),
+      inset 0 0 40px rgba(0,0,0,0.9);
+    background: #080a08;
+    padding: 6px;
+  }
+
+  #cv { display: block; border-radius: 5px; }
+
+  #crt {
+    position: absolute;
+    top: 6px; left: 6px; right: 6px; bottom: 6px;
+    border-radius: 5px;
+    pointer-events: none;
+    z-index: 10;
+    background: repeating-linear-gradient(0deg,
+      rgba(0,0,0,0.1) 0px, rgba(0,0,0,0.1) 1px,
+      transparent 1px, transparent 2.5px);
+  }
+  #crt::after {
+    content: '';
+    position: absolute; inset: 0; border-radius: 5px;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.5) 100%);
+  }
+
+  #touch {
+    display: none;
+    position: fixed;
+    bottom: 10px; left: 0; right: 0;
+    padding: 0 20px;
+    z-index: 100;
+    justify-content: center;
+    gap: 6px;
+  }
+  .td { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .tr { display: flex; gap: 6px; }
+  .tb {
+    background: rgba(0,255,100,0.1);
+    border: 2px solid rgba(0,255,100,0.3);
+    color: #0f8;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 16px;
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    user-select: none; -webkit-user-select: none;
+    touch-action: manipulation;
+  }
+  .tb:active { background: rgba(0,255,100,0.25); }
+
+  @media (max-width: 520px) {
+    #cab { border-width: 2px; padding: 3px; border-radius: 6px; }
+    #crt { top: 3px; left: 3px; right: 3px; bottom: 3px; }
+    #touch { display: flex; }
+  }
+</style>
+</head>
+<body>
+
+<div id="cab">
+  <canvas id="cv"></canvas>
+  <div id="crt"></div>
+</div>
+
+<div id="touch">
+  <div class="td">
+    <button class="tb" id="t-up">▲</button>
+    <div class="tr">
+      <button class="tb" id="t-left">◀</button>
+      <button class="tb" id="t-down">▼</button>
+      <button class="tb" id="t-right">▶</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const cv = document.getElementById('cv');
+const X = cv.getContext('2d');
+const GW = 480, GH = 560;
+const CELL = 40;
+const COLS = 12;
+const ROWS = 14;
+
+function resize() {
+  const mw = Math.min(window.innerWidth - 16, 480);
+  const mh = Math.min(window.innerHeight - (window.innerWidth < 520 ? 90 : 16), 560);
+  const s = Math.min(mw / GW, mh / GH);
+  cv.width = GW; cv.height = GH;
+  cv.style.width = Math.floor(GW * s) + 'px';
+  cv.style.height = Math.floor(GH * s) + 'px';
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ─── Audio ───
+const AC = window.AudioContext || window.webkitAudioContext;
+let ac;
+function ea() { if (!ac) ac = new AC(); }
+function snd(f, d, t='square', v=0.06) {
+  ea();
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = t;
+  o.frequency.setValueAtTime(f, ac.currentTime);
+  o.frequency.exponentialRampToValueAtTime(Math.max(f*0.2,20), ac.currentTime+d);
+  g.gain.setValueAtTime(v, ac.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime+d);
+  o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime+d);
+}
+
+const SFX = {
+  hop: () => snd(300, 0.04, 'square', 0.04),
+  die: () => { snd(200, 0.3, 'sawtooth', 0.1); setTimeout(()=>snd(60,0.4,'sawtooth',0.08),120); },
+  home: () => { snd(520,0.06); setTimeout(()=>snd(780,0.06),50); setTimeout(()=>snd(1040,0.08),100); setTimeout(()=>snd(1300,0.1),150); },
+  bonus: () => { snd(660,0.06); setTimeout(()=>snd(990,0.08),60); },
+  clear: () => { [440,660,880,1100,1320].forEach((f,i) => setTimeout(()=>snd(f,0.1),i*80)); },
+  splash: () => snd(100, 0.25, 'triangle', 0.06),
+  timeWarn: () => snd(440, 0.08, 'square', 0.04),
+};
+
+// ─── Colors ───
+const COL = {
+  bg: '#060614',
+  road: '#111118',
+  roadLine: '#332200',
+  grass: '#0a1a08',
+  grassLine: '#1a3a10',
+  water: '#041428',
+  waterShine: '#0a2848',
+  cyan: '#00e5ff',
+  pink: '#ff00cc',
+  green: '#39ff14',
+  amber: '#ffaa00',
+  red: '#ff2244',
+  purple: '#bb44ff',
+  white: '#eef',
+  yellow: '#ffe600',
+  orange: '#ff6600',
+  teal: '#00cc88',
+  lilyPad: '#006622',
+  lilyLight: '#00aa44',
+  log: '#664400',
+  logLight: '#885500',
+  logEdge: '#aa7722',
+};
+
+// ─── Lane layout (row 0 = top) ───
+// Row 0: home zone
+// Row 1-5: water/logs
+// Row 6: safe median
+// Row 7-11: road/traffic
+// Row 12: safe start
+// Row 13: HUD area
+const LANE_TYPE = [
+  'home',
+  'water','water','water','water','water',
+  'safe',
+  'road','road','road','road','road',
+  'safe',
+  'hud',
+];
+
+function rowY(r) { return r * CELL; }
+
+// ─── State ───
+let state = 'title';
+let score = 0, hiScore = 0, lives = 3, level = 1;
+let arcadeScoreSubmitted = false;
+let frogsHome = [false, false, false, false, false];
+let timer = 0, maxTime = 1200; // ~20 seconds at 60fps
+let nightMode = false;
+let screenShake = 0, flashTimer = 0;
+
+// ─── Frog ───
+const frog = {
+  x: 0, y: 0, targetX: 0, targetY: 0,
+  hopAnim: 0, alive: true, onLog: null,
+  facing: 0, // 0=up, 1=right, 2=down, 3=left
+  deathTimer: 0, deathType: '',
+};
+
+function resetFrog() {
+  frog.x = 6 * CELL; frog.y = 12 * CELL;
+  frog.targetX = frog.x; frog.targetY = frog.y;
+  frog.hopAnim = 0; frog.alive = true; frog.onLog = null;
+  frog.facing = 0;
+  timer = maxTime;
+}
+
+// ─── Traffic ───
+let vehicles = [];
+const VEHICLE_DEFS = [
+  // row, speed, count, width, color, type
+  { row: 7,  spd: 1.5, n: 3, w: 48,  col: COL.red,    type: 'car' },
+  { row: 8,  spd: -2,  n: 3, w: 64,  col: COL.amber,  type: 'truck' },
+  { row: 9,  spd: 1.8, n: 4, w: 44,  col: COL.cyan,   type: 'car' },
+  { row: 10, spd: -1.2,n: 2, w: 88,  col: COL.purple,  type: 'bus' },
+  { row: 11, spd: 2.5, n: 3, w: 48,  col: COL.pink,   type: 'car' },
+];
+
+function spawnVehicles() {
+  vehicles = [];
+  VEHICLE_DEFS.forEach(def => {
+    const spdMul = 1 + (level - 1) * 0.12;
+    const gap = GW / def.n;
+    for (let i = 0; i < def.n; i++) {
+      vehicles.push({
+        x: i * gap + Math.random() * 30,
+        y: rowY(def.row) + 4,
+        w: def.w, h: CELL - 8,
+        vx: def.spd * spdMul,
+        color: def.col, type: def.type,
+        headlights: def.spd > 0, // right-facing have headlights
+        row: def.row,
+      });
+    }
+  });
+}
+
+// ─── River objects ───
+let riverObjs = [];
+const RIVER_DEFS = [
+  { row: 1, spd: -1,  items: [{ type: 'log', w: 120 }, { type: 'log', w: 120 }, { type: 'log', w: 80 }] },
+  { row: 2, spd: 1.3, items: [{ type: 'turtle', w: 100, diving: true }, { type: 'turtle', w: 100 }, { type: 'turtle', w: 60 }] },
+  { row: 3, spd: -1.5,items: [{ type: 'log', w: 160 }, { type: 'log', w: 80 }] },
+  { row: 4, spd: 0.8, items: [{ type: 'turtle', w: 80 }, { type: 'turtle', w: 80, diving: true }, { type: 'turtle', w: 80 }] },
+  { row: 5, spd: -2,  items: [{ type: 'log', w: 100 }, { type: 'log', w: 100 }, { type: 'log', w: 60 }] },
+];
+
+function spawnRiverObjs() {
+  riverObjs = [];
+  RIVER_DEFS.forEach(def => {
+    const spdMul = 1 + (level - 1) * 0.1;
+    let xPos = 0;
+    const totalW = def.items.reduce((s, it) => s + it.w, 0);
+    const gap = (GW + 100) / def.items.length;
+    def.items.forEach((it, i) => {
+      xPos = i * gap + Math.random() * 20;
+      riverObjs.push({
+        x: xPos, y: rowY(def.row),
+        w: it.w, h: CELL,
+        vx: def.spd * spdMul,
+        type: it.type, row: def.row,
+        diving: it.diving || false,
+        diveTimer: Math.random() * 300,
+        divePhase: 'up', // up, sinking, down, rising
+        diveCycle: 200 + Math.random() * 100,
+      });
+    });
+  });
+}
+
+// ─── Home slots ───
+const HOME_SLOTS = [];
+function initHomeSlots() {
+  HOME_SLOTS.length = 0;
+  for (let i = 0; i < 5; i++) {
+    HOME_SLOTS.push({
+      x: 28 + i * (GW - 56) / 4 - CELL / 2,
+      y: 0, w: CELL + 8, h: CELL,
+      hasBonus: false, bonusType: null,
+    });
+  }
+}
+
+// ─── Bonus ───
+let bonusItems = [];
+
+function spawnBonus() {
+  // Random fly on an empty home slot
+  const empty = HOME_SLOTS.filter((s, i) => !frogsHome[i]);
+  if (empty.length > 0 && Math.random() < 0.3) {
+    const slot = empty[Math.floor(Math.random() * empty.length)];
+    slot.hasBonus = true;
+    slot.bonusType = 'fly';
+  }
+}
+
+// ─── Particles ───
+let particles = [];
+function boom(x, y, col, n=10, spd=2.5) {
+  for (let i = 0; i < n; i++) {
+    const a = (Math.PI*2/n)*i + (Math.random()-0.5)*0.4;
+    const s = Math.random()*spd+0.5;
+    particles.push({ x, y, vx:Math.cos(a)*s, vy:Math.sin(a)*s, life:1, decay:0.025+Math.random()*0.02, size:2+Math.random()*3, color:col });
+  }
+}
+
+function splash(x, y) {
+  for (let i = 0; i < 8; i++) {
+    const a = Math.PI + (Math.random()-0.5)*2;
+    particles.push({ x: x+Math.random()*20-10, y, vx:Math.cos(a)*1.5, vy:-Math.random()*3-1, life:1, decay:0.03, size:2, color:COL.cyan });
+  }
+}
+
+// ─── Input ───
+const keys = {};
+let inputQueue = [];
+let inputCD = 0;
+
+window.addEventListener('keydown', e => {
+  ea();
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','w','a','s','d'].includes(e.key)) {
+    e.preventDefault();
+    queueInput(e.key);
+  }
+  if (state === 'title' || state === 'gameover') startGame();
+});
+
+function queueInput(k) {
+  let dir;
+  if (k === 'ArrowUp' || k === 'w') dir = 'up';
+  else if (k === 'ArrowDown' || k === 's') dir = 'down';
+  else if (k === 'ArrowLeft' || k === 'a') dir = 'left';
+  else if (k === 'ArrowRight' || k === 'd') dir = 'right';
+  if (dir) inputQueue.push(dir);
+}
+
+// Touch
+['t-up','t-down','t-left','t-right'].forEach(id => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('touchstart', e => {
+    e.preventDefault(); ea();
+    if (state === 'title' || state === 'gameover') { startGame(); return; }
+    queueInput({ 't-up':'ArrowUp','t-down':'ArrowDown','t-left':'ArrowLeft','t-right':'ArrowRight' }[id]);
+  });
+});
+
+// Swipe support
+let touchStartX = 0, touchStartY = 0;
+cv.addEventListener('touchstart', e => {
+  ea();
+  if (state === 'title' || state === 'gameover') { startGame(); return; }
+  touchStartX = e.touches[0].clientX;
+  touchStartY = e.touches[0].clientY;
+});
+cv.addEventListener('touchend', e => {
+  const dx = e.changedTouches[0].clientX - touchStartX;
+  const dy = e.changedTouches[0].clientY - touchStartY;
+  const threshold = 25;
+  if (Math.abs(dx) < threshold && Math.abs(dy) < threshold) return;
+  if (Math.abs(dx) > Math.abs(dy)) {
+    queueInput(dx > 0 ? 'ArrowRight' : 'ArrowLeft');
+  } else {
+    queueInput(dy > 0 ? 'ArrowDown' : 'ArrowUp');
+  }
+});
+cv.addEventListener('click', () => { ea(); if (state === 'title' || state === 'gameover') startGame(); });
+
+// ─── Start ───
+function startGame() {
+  state = 'playing';
+  arcadeScoreSubmitted = false;
+  score = 0; lives = 3; level = 1;
+  frogsHome = [false,false,false,false,false];
+  nightMode = false;
+  maxTime = 1200;
+  initHomeSlots();
+  spawnVehicles();
+  spawnRiverObjs();
+  resetFrog();
+  spawnBonus();
+  particles = [];
+}
+
+function nextLevel() {
+  level++;
+  frogsHome = [false,false,false,false,false];
+  nightMode = level % 3 === 0; // Every 3rd level is night mode
+  maxTime = Math.max(800, 1200 - level * 30);
+  spawnVehicles();
+  spawnRiverObjs();
+  resetFrog();
+  spawnBonus();
+  HOME_SLOTS.forEach(s => { s.hasBonus = false; s.bonusType = null; });
+}
+
+// ─── Update ───
+function update() {
+  if (screenShake > 0) screenShake -= 0.5;
+  if (flashTimer > 0) flashTimer--;
+  if (state !== 'playing') return;
+
+  // ── Process input ──
+  if (inputCD > 0) inputCD--;
+  if (inputQueue.length > 0 && inputCD <= 0 && frog.alive && frog.hopAnim <= 0) {
+    const dir = inputQueue.shift();
+    let dx = 0, dy = 0;
+    if (dir === 'up') { dy = -CELL; frog.facing = 0; }
+    if (dir === 'down') { dy = CELL; frog.facing = 2; }
+    if (dir === 'left') { dx = -CELL; frog.facing = 3; }
+    if (dir === 'right') { dx = CELL; frog.facing = 1; }
+
+    const nx = frog.x + dx, ny = frog.y + dy;
+    if (nx >= 0 && nx < GW - CELL / 2 && ny >= 0 && ny <= 12 * CELL) {
+      frog.targetX = nx; frog.targetY = ny;
+      frog.hopAnim = 8;
+      frog.onLog = null;
+      SFX.hop();
+      inputCD = 3;
+      // Score for moving up
+      if (dy < 0) score += 10;
+    }
+  } else if (frog.hopAnim <= 0) {
+    inputQueue = [];
+  }
+
+  // ── Hop animation ──
+  if (frog.hopAnim > 0) {
+    const t = frog.hopAnim / 8;
+    frog.x += (frog.targetX - frog.x) * 0.35;
+    frog.y += (frog.targetY - frog.y) * 0.35;
+    frog.hopAnim--;
+    if (frog.hopAnim <= 0) {
+      frog.x = frog.targetX;
+      frog.y = frog.targetY;
+    }
+  }
+
+  // ── Timer ──
+  timer--;
+  if (timer === 300) SFX.timeWarn();
+  if (timer <= 0 && frog.alive) {
+    frogDie('time');
+  }
+
+  // ── Move vehicles ──
+  vehicles.forEach(v => {
+    v.x += v.vx;
+    if (v.vx > 0 && v.x > GW + 20) v.x = -v.w - 10;
+    if (v.vx < 0 && v.x + v.w < -20) v.x = GW + 10;
+  });
+
+  // ── Move river objects ──
+  riverObjs.forEach(r => {
+    r.x += r.vx;
+    if (r.vx > 0 && r.x > GW + 20) r.x = -r.w - 10;
+    if (r.vx < 0 && r.x + r.w < -20) r.x = GW + 10;
+
+    // Turtle diving
+    if (r.diving) {
+      r.diveTimer--;
+      if (r.diveTimer <= 0) {
+        if (r.divePhase === 'up') { r.divePhase = 'sinking'; r.diveTimer = 40; }
+        else if (r.divePhase === 'sinking') { r.divePhase = 'down'; r.diveTimer = 80 + Math.random() * 60; }
+        else if (r.divePhase === 'down') { r.divePhase = 'rising'; r.diveTimer = 40; }
+        else { r.divePhase = 'up'; r.diveTimer = r.diveCycle; }
+      }
+    }
+  });
+
+  // ── Frog on river ──
+  if (frog.alive && frog.hopAnim <= 0) {
+    const frogRow = Math.round(frog.y / CELL);
+    const laneType = LANE_TYPE[frogRow];
+
+    if (laneType === 'water') {
+      // Check if on a log/turtle
+      let onSomething = false;
+      for (const r of riverObjs) {
+        if (r.row !== frogRow) continue;
+        // Skip submerged turtles
+        if (r.diving && r.divePhase === 'down') continue;
+
+        const frogCX = frog.x + CELL / 2;
+        if (frogCX > r.x && frogCX < r.x + r.w) {
+          onSomething = true;
+          frog.onLog = r;
+          // Move with log/turtle
+          frog.x += r.vx;
+          frog.targetX = frog.x;
+          break;
+        }
+      }
+      if (!onSomething) {
+        // In the water! 
+        frogDie('water');
+      }
+    }
+
+    // Off screen left/right
+    if (frog.x < -CELL / 2 || frog.x > GW) {
+      frogDie('water');
+    }
+
+    // ── Check home slots ──
+    if (laneType === 'home') {
+      let landed = false;
+      HOME_SLOTS.forEach((slot, i) => {
+        const frogCX = frog.x + CELL / 2;
+        if (frogCX > slot.x && frogCX < slot.x + slot.w && !frogsHome[i]) {
+          frogsHome[i] = true;
+          landed = true;
+          score += 200;
+          if (slot.hasBonus) {
+            score += 500;
+            SFX.bonus();
+            slot.hasBonus = false;
+          }
+          SFX.home();
+          boom(slot.x + slot.w / 2, slot.y + CELL / 2, COL.green, 14, 3);
+          flashTimer = 4;
+
+          // All homes filled?
+          if (frogsHome.every(h => h)) {
+            score += 1000;
+            SFX.clear();
+            flashTimer = 8;
+            setTimeout(() => nextLevel(), 800);
+          }
+          resetFrog();
+          spawnBonus();
+        }
+      });
+      if (!landed) {
+        // Hit the bank between slots
+        frogDie('wall');
+      }
+    }
+
+    // ── Vehicle collision ──
+    if (laneType === 'road') {
+      const frogBox = { x: frog.x + 6, y: frog.y + 6, w: CELL - 12, h: CELL - 12 };
+      for (const v of vehicles) {
+        if (frogBox.x + frogBox.w > v.x && frogBox.x < v.x + v.w &&
+            frogBox.y + frogBox.h > v.y && frogBox.y < v.y + v.h) {
+          frogDie('hit');
+          break;
+        }
+      }
+    }
+  }
+
+  // ── Death sequence ──
+  if (!frog.alive) {
+    frog.deathTimer--;
+    if (frog.deathTimer <= 0) {
+      if (lives <= 0) {
+        state = 'gameover';
+        if (score > hiScore) hiScore = score;
+        if (!arcadeScoreSubmitted) {
+          arcadeScoreSubmitted = true;
+          const finalScore = score;
+          setTimeout(() => {
+            import('/scores.js')
+              .then(({ submitScore }) => {
+                const raw = prompt('GAME OVER — Enter initials (max 12):', 'AAA');
+                const name = raw == null ? 'AAA' : raw.trim() || 'AAA';
+                submitScore({ gameId: 'neon-hop', name, score: finalScore, limit: 10 });
+              })
+              .catch(() => {});
+          }, 0);
+        }
+      } else {
+        resetFrog();
+      }
+    }
+  }
+
+  // ── Particles ──
+  particles = particles.filter(p => { p.x += p.vx; p.y += p.vy; p.vy += 0.04; p.life -= p.decay; return p.life > 0; });
+}
+
+function frogDie(type) {
+  if (!frog.alive) return;
+  frog.alive = false;
+  frog.deathTimer = 60;
+  frog.deathType = type;
+  lives--;
+
+  if (type === 'water') {
+    SFX.splash();
+    splash(frog.x + CELL / 2, frog.y + CELL / 2);
+  } else {
+    SFX.die();
+    boom(frog.x + CELL / 2, frog.y + CELL / 2, COL.green, 14, 3);
+  }
+  screenShake = 6;
+}
+
+// ─── Drawing ───
+function draw() {
+  const sk = Math.max(0, screenShake);
+  const sx = sk > 0 ? (Math.random()-0.5)*sk : 0;
+  const sy = sk > 0 ? (Math.random()-0.5)*sk : 0;
+  X.save();
+  X.translate(sx, sy);
+
+  X.fillStyle = COL.bg;
+  X.fillRect(0, 0, GW, GH);
+
+  if (state === 'title') { drawTitle(); X.restore(); return; }
+
+  if (flashTimer > 0) {
+    X.fillStyle = `rgba(255,255,255,${flashTimer*0.04})`;
+    X.fillRect(0, 0, GW, GH);
+  }
+
+  // ── Draw lanes ──
+  // Water area
+  for (let r = 1; r <= 5; r++) {
+    const y = rowY(r);
+    X.fillStyle = COL.water;
+    X.fillRect(0, y, GW, CELL);
+    // Subtle wave lines
+    X.strokeStyle = COL.waterShine;
+    X.lineWidth = 0.5;
+    X.globalAlpha = 0.3;
+    for (let wx = 0; wx < GW; wx += 20) {
+      const wy = y + CELL / 2 + Math.sin(Date.now() * 0.003 + wx * 0.1 + r) * 3;
+      X.beginPath(); X.moveTo(wx, wy); X.lineTo(wx + 12, wy + 1); X.stroke();
+    }
+    X.globalAlpha = 1;
+  }
+
+  // Road area
+  X.fillStyle = COL.road;
+  X.fillRect(0, rowY(7), GW, CELL * 5);
+  // Road markings
+  for (let r = 7; r < 12; r++) {
+    const y = rowY(r) + CELL;
+    X.strokeStyle = COL.roadLine;
+    X.lineWidth = 1;
+    X.setLineDash([12, 10]);
+    X.beginPath(); X.moveTo(0, y); X.lineTo(GW, y); X.stroke();
+    X.setLineDash([]);
+  }
+  // Road edge lines
+  X.strokeStyle = COL.amber;
+  X.shadowColor = COL.amber;
+  X.shadowBlur = 4;
+  X.lineWidth = 2;
+  X.beginPath(); X.moveTo(0, rowY(7)); X.lineTo(GW, rowY(7)); X.stroke();
+  X.beginPath(); X.moveTo(0, rowY(12)); X.lineTo(GW, rowY(12)); X.stroke();
+  X.shadowBlur = 0;
+
+  // Safe zones (grass)
+  [6, 12].forEach(r => {
+    const y = rowY(r);
+    X.fillStyle = COL.grass;
+    X.fillRect(0, y, GW, CELL);
+    // Grass tufts
+    X.strokeStyle = COL.grassLine;
+    X.lineWidth = 1;
+    for (let gx = 5; gx < GW; gx += 18) {
+      X.beginPath();
+      X.moveTo(gx, y + CELL);
+      X.lineTo(gx + 2, y + CELL - 8 - Math.sin(gx) * 3);
+      X.stroke();
+    }
+  });
+
+  // Home zone
+  X.fillStyle = COL.grass;
+  X.fillRect(0, 0, GW, CELL);
+
+  // ── Home slots ──
+  HOME_SLOTS.forEach((slot, i) => {
+    if (frogsHome[i]) {
+      // Filled — draw a sitting frog
+      X.shadowColor = COL.green;
+      X.shadowBlur = 6;
+      drawFrogAt(slot.x + slot.w / 2 - CELL / 2, slot.y, COL.green, 0);
+      X.shadowBlur = 0;
+    } else {
+      // Empty lily pad
+      X.fillStyle = COL.lilyPad;
+      X.shadowColor = COL.green;
+      X.shadowBlur = 4;
+      X.beginPath();
+      X.arc(slot.x + slot.w / 2, slot.y + CELL / 2, 16, 0.2, Math.PI * 2 - 0.2);
+      X.lineTo(slot.x + slot.w / 2, slot.y + CELL / 2);
+      X.fill();
+      X.shadowBlur = 0;
+
+      // Bonus item
+      if (slot.hasBonus) {
+        X.fillStyle = COL.amber;
+        X.shadowColor = COL.amber;
+        X.shadowBlur = 6;
+        const bx = slot.x + slot.w / 2, by = slot.y + CELL / 2;
+        // Fly shape
+        X.fillRect(bx - 2, by - 2, 4, 4);
+        X.strokeStyle = COL.amber;
+        X.lineWidth = 1;
+        X.beginPath();
+        X.ellipse(bx - 4, by - 3, 3, 2, -0.3, 0, Math.PI * 2);
+        X.stroke();
+        X.beginPath();
+        X.ellipse(bx + 4, by - 3, 3, 2, 0.3, 0, Math.PI * 2);
+        X.stroke();
+        X.shadowBlur = 0;
+      }
+    }
+  });
+
+  // Barriers between home slots
+  for (let i = 0; i < GW; i += 4) {
+    let inSlot = false;
+    for (const slot of HOME_SLOTS) {
+      if (i >= slot.x && i <= slot.x + slot.w) { inSlot = true; break; }
+    }
+    if (!inSlot) {
+      X.fillStyle = COL.grass;
+      X.fillRect(i, 0, 4, CELL);
+    }
+  }
+
+  // ── River objects ──
+  riverObjs.forEach(r => {
+    if (r.type === 'log') {
+      X.shadowColor = COL.logEdge;
+      X.shadowBlur = 3;
+      X.fillStyle = COL.log;
+      X.beginPath();
+      X.roundRect(r.x, r.y + 6, r.w, CELL - 12, 6);
+      X.fill();
+      X.fillStyle = COL.logLight;
+      X.fillRect(r.x + 4, r.y + 8, r.w - 8, 4);
+      // Wood grain
+      X.strokeStyle = COL.logEdge;
+      X.lineWidth = 0.5;
+      for (let lx = r.x + 12; lx < r.x + r.w - 8; lx += 16) {
+        X.beginPath();
+        X.arc(lx, r.y + CELL / 2, 5, 0, Math.PI * 2);
+        X.stroke();
+      }
+      X.shadowBlur = 0;
+    } else {
+      // Turtle
+      let alpha = 1;
+      if (r.diving) {
+        if (r.divePhase === 'sinking') alpha = 1 - (1 - r.diveTimer / 40) * 0.8;
+        else if (r.divePhase === 'down') alpha = 0.15;
+        else if (r.divePhase === 'rising') alpha = 0.2 + (1 - r.diveTimer / 40) * 0.8;
+      }
+      X.globalAlpha = alpha;
+
+      const tCount = Math.floor(r.w / 28);
+      for (let t = 0; t < tCount; t++) {
+        const tx = r.x + 6 + t * 28;
+        const ty = r.y + CELL / 2;
+        X.fillStyle = COL.teal;
+        X.shadowColor = COL.teal;
+        X.shadowBlur = 3;
+        // Shell
+        X.beginPath();
+        X.arc(tx + 10, ty, 11, 0, Math.PI * 2);
+        X.fill();
+        // Pattern
+        X.strokeStyle = '#005544';
+        X.lineWidth = 1;
+        X.beginPath(); X.arc(tx + 10, ty, 7, 0, Math.PI * 2); X.stroke();
+        X.beginPath(); X.moveTo(tx + 3, ty); X.lineTo(tx + 17, ty); X.stroke();
+        X.beginPath(); X.moveTo(tx + 10, ty - 7); X.lineTo(tx + 10, ty + 7); X.stroke();
+        // Head
+        X.fillStyle = COL.green;
+        X.beginPath(); X.arc(tx + 22, ty, 4, 0, Math.PI * 2); X.fill();
+        X.shadowBlur = 0;
+      }
+      X.globalAlpha = 1;
+    }
+  });
+
+  // ── Vehicles ──
+  vehicles.forEach(v => {
+    X.save();
+    X.shadowColor = v.color;
+    X.shadowBlur = 6;
+    X.fillStyle = v.color;
+
+    if (v.type === 'car') {
+      X.beginPath();
+      X.roundRect(v.x, v.y, v.w, v.h, 5);
+      X.fill();
+      // Windows
+      X.fillStyle = COL.bg;
+      const winX = v.vx > 0 ? v.x + v.w * 0.55 : v.x + v.w * 0.15;
+      X.fillRect(winX, v.y + 4, v.w * 0.25, v.h - 8);
+      // Headlights
+      if (nightMode) drawHeadlights(v);
+    } else if (v.type === 'truck') {
+      X.beginPath();
+      X.roundRect(v.x, v.y, v.w, v.h, 4);
+      X.fill();
+      X.fillStyle = 'rgba(0,0,0,0.3)';
+      X.fillRect(v.x + 4, v.y + 3, v.w * 0.55, v.h - 6);
+      if (nightMode) drawHeadlights(v);
+    } else { // bus
+      X.beginPath();
+      X.roundRect(v.x, v.y, v.w, v.h, 4);
+      X.fill();
+      // Windows
+      X.fillStyle = COL.yellow;
+      X.globalAlpha = 0.3;
+      for (let wx = v.x + 8; wx < v.x + v.w - 12; wx += 14) {
+        X.fillRect(wx, v.y + 4, 10, v.h - 8);
+      }
+      X.globalAlpha = 1;
+      if (nightMode) drawHeadlights(v);
+    }
+    X.shadowBlur = 0;
+    X.restore();
+  });
+
+  // ── Night mode darkness overlay ──
+  if (nightMode) {
+    // Dark overlay with cone cutouts for headlights
+    X.save();
+    X.globalCompositeOperation = 'source-over';
+    X.fillStyle = 'rgba(0,0,8,0.75)';
+    X.fillRect(0, 0, GW, GH);
+
+    // Cut light around frog
+    X.globalCompositeOperation = 'destination-out';
+    const grad = X.createRadialGradient(frog.x + CELL/2, frog.y + CELL/2, 5, frog.x + CELL/2, frog.y + CELL/2, 70);
+    grad.addColorStop(0, 'rgba(0,0,0,0.9)');
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    X.fillStyle = grad;
+    X.fillRect(frog.x - 70, frog.y - 70, 140 + CELL, 140 + CELL);
+
+    // Headlight cones
+    vehicles.forEach(v => {
+      const cx = v.vx > 0 ? v.x + v.w : v.x;
+      const cy = v.y + v.h / 2;
+      const dir = v.vx > 0 ? 1 : -1;
+      const hGrad = X.createRadialGradient(cx, cy, 2, cx + dir * 80, cy, 90);
+      hGrad.addColorStop(0, 'rgba(0,0,0,0.8)');
+      hGrad.addColorStop(1, 'rgba(0,0,0,0)');
+      X.fillStyle = hGrad;
+      X.beginPath();
+      X.moveTo(cx, cy);
+      X.lineTo(cx + dir * 130, cy - 40);
+      X.lineTo(cx + dir * 130, cy + 40);
+      X.closePath();
+      X.fill();
+    });
+    X.globalCompositeOperation = 'source-over';
+    X.restore();
+  }
+
+  // ── Particles ──
+  particles.forEach(p => {
+    X.globalAlpha = Math.max(0, p.life);
+    X.fillStyle = p.color;
+    const sz = p.size * p.life;
+    X.fillRect(p.x - sz/2, p.y - sz/2, sz, sz);
+  });
+  X.globalAlpha = 1;
+
+  // ── Frog ──
+  if (frog.alive) {
+    const hopScale = frog.hopAnim > 0 ? 1 + Math.sin((frog.hopAnim / 8) * Math.PI) * 0.15 : 1;
+    X.save();
+    X.translate(frog.x + CELL / 2, frog.y + CELL / 2);
+    X.scale(hopScale, hopScale);
+    X.translate(-CELL / 2, -CELL / 2);
+    drawFrogAt(0, 0, COL.green, frog.facing);
+    X.restore();
+  } else if (frog.deathTimer > 30) {
+    // Death animation
+    const t = (60 - frog.deathTimer) / 30;
+    X.globalAlpha = 1 - t;
+    if (frog.deathType === 'water') {
+      // Sinking rings
+      for (let i = 0; i < 3; i++) {
+        const r = 5 + (t + i * 0.2) * 25;
+        X.strokeStyle = COL.cyan;
+        X.lineWidth = 1.5;
+        X.globalAlpha = Math.max(0, 0.5 - t - i * 0.15);
+        X.beginPath();
+        X.arc(frog.x + CELL / 2, frog.y + CELL / 2, r, 0, Math.PI * 2);
+        X.stroke();
+      }
+    } else {
+      // Splat
+      X.fillStyle = COL.red;
+      X.font = '16px "Press Start 2P"';
+      X.textAlign = 'center';
+      X.fillText('X', frog.x + CELL / 2, frog.y + CELL / 2 + 6);
+    }
+    X.globalAlpha = 1;
+  }
+
+  // ── HUD ──
+  drawHUD();
+
+  if (state === 'gameover') drawGameOver();
+
+  X.restore();
+}
+
+function drawHeadlights(v) {
+  const cx = v.vx > 0 ? v.x + v.w : v.x;
+  const cy = v.y + v.h / 2;
+  X.fillStyle = COL.yellow;
+  X.shadowColor = COL.yellow;
+  X.shadowBlur = 6;
+  X.fillRect(cx - 2, cy - 3, 4, 6);
+  // Rear lights
+  const rx = v.vx > 0 ? v.x : v.x + v.w - 4;
+  X.fillStyle = COL.red;
+  X.shadowColor = COL.red;
+  X.fillRect(rx, cy - 2, 4, 4);
+  X.shadowBlur = 0;
+}
+
+function drawFrogAt(fx, fy, col, facing) {
+  X.save();
+  X.translate(fx + CELL / 2, fy + CELL / 2);
+  X.rotate(facing * Math.PI / 2);
+  X.translate(-CELL / 2, -CELL / 2);
+
+  X.shadowColor = col;
+  X.shadowBlur = 8;
+
+  // Body
+  X.fillStyle = col;
+  X.beginPath();
+  X.ellipse(CELL / 2, CELL / 2 + 2, 10, 12, 0, 0, Math.PI * 2);
+  X.fill();
+
+  // Head
+  X.fillStyle = col;
+  X.beginPath();
+  X.ellipse(CELL / 2, CELL / 2 - 8, 8, 7, 0, 0, Math.PI * 2);
+  X.fill();
+
+  // Eyes
+  X.fillStyle = COL.white;
+  X.beginPath(); X.arc(CELL / 2 - 5, CELL / 2 - 12, 4, 0, Math.PI * 2); X.fill();
+  X.beginPath(); X.arc(CELL / 2 + 5, CELL / 2 - 12, 4, 0, Math.PI * 2); X.fill();
+  X.fillStyle = '#000';
+  X.beginPath(); X.arc(CELL / 2 - 5, CELL / 2 - 13, 2, 0, Math.PI * 2); X.fill();
+  X.beginPath(); X.arc(CELL / 2 + 5, CELL / 2 - 13, 2, 0, Math.PI * 2); X.fill();
+
+  // Back legs
+  X.strokeStyle = col;
+  X.lineWidth = 3;
+  X.beginPath(); X.moveTo(6, CELL / 2 + 8); X.lineTo(-2, CELL / 2 + 16); X.lineTo(6, CELL / 2 + 18); X.stroke();
+  X.beginPath(); X.moveTo(CELL - 6, CELL / 2 + 8); X.lineTo(CELL + 2, CELL / 2 + 16); X.lineTo(CELL - 6, CELL / 2 + 18); X.stroke();
+
+  // Front legs
+  X.lineWidth = 2;
+  X.beginPath(); X.moveTo(8, CELL / 2 - 4); X.lineTo(0, CELL / 2 - 8); X.stroke();
+  X.beginPath(); X.moveTo(CELL - 8, CELL / 2 - 4); X.lineTo(CELL, CELL / 2 - 8); X.stroke();
+
+  X.shadowBlur = 0;
+  X.restore();
+}
+
+function drawHUD() {
+  X.save();
+
+  // Score
+  X.shadowColor = COL.green;
+  X.shadowBlur = 4;
+  X.fillStyle = COL.green;
+  X.font = '10px "Press Start 2P"';
+  X.textAlign = 'left';
+  X.fillText(String(score).padStart(7, '0'), 8, GH - 18);
+  X.shadowBlur = 0;
+
+  // Lives
+  for (let i = 0; i < lives; i++) {
+    drawFrogAt(140 + i * 28, GH - CELL - 8, COL.green, 0);
+  }
+
+  // Level
+  X.textAlign = 'center';
+  X.fillStyle = nightMode ? COL.purple : '#445';
+  X.font = '8px "Press Start 2P"';
+  X.fillText((nightMode ? '★ ' : '') + 'LEVEL ' + level + (nightMode ? ' ★' : ''), GW / 2, GH - 18);
+
+  // Hi score
+  X.textAlign = 'right';
+  X.fillStyle = COL.purple;
+  X.font = '8px "Press Start 2P"';
+  X.fillText('HI ' + String(hiScore).padStart(7, '0'), GW - 8, GH - 18);
+
+  // Timer bar
+  const timerPct = Math.max(0, timer / maxTime);
+  const barW = GW - 16;
+  X.fillStyle = '#222';
+  X.fillRect(8, GH - 8, barW, 4);
+  X.fillStyle = timerPct > 0.3 ? COL.green : timerPct > 0.15 ? COL.amber : COL.red;
+  X.shadowColor = X.fillStyle;
+  X.shadowBlur = timerPct < 0.15 ? 6 : 2;
+  X.fillRect(8, GH - 8, barW * timerPct, 4);
+  X.shadowBlur = 0;
+
+  X.restore();
+}
+
+function drawTitle() {
+  const t = Date.now() * 0.001;
+  X.save();
+  X.textAlign = 'center';
+
+  // Sample road
+  X.fillStyle = COL.road;
+  X.fillRect(0, 300, GW, 80);
+  X.strokeStyle = COL.roadLine; X.lineWidth = 1; X.setLineDash([12, 10]);
+  X.beginPath(); X.moveTo(0, 340); X.lineTo(GW, 340); X.stroke();
+  X.setLineDash([]);
+  X.strokeStyle = COL.amber; X.shadowColor = COL.amber; X.shadowBlur = 4; X.lineWidth = 2;
+  X.beginPath(); X.moveTo(0, 300); X.lineTo(GW, 300); X.stroke();
+  X.beginPath(); X.moveTo(0, 380); X.lineTo(GW, 380); X.stroke();
+  X.shadowBlur = 0;
+
+  // Moving car on title
+  const carX = (Date.now() * 0.06) % (GW + 60) - 30;
+  X.fillStyle = COL.red; X.shadowColor = COL.red; X.shadowBlur = 6;
+  X.beginPath(); X.roundRect(carX, 312, 48, 28, 5); X.fill();
+  X.shadowBlur = 0;
+
+  const carX2 = GW - (Date.now() * 0.04) % (GW + 80);
+  X.fillStyle = COL.cyan; X.shadowColor = COL.cyan; X.shadowBlur = 6;
+  X.beginPath(); X.roundRect(carX2, 348, 44, 26, 5); X.fill();
+  X.shadowBlur = 0;
+
+  // Water
+  X.fillStyle = COL.water;
+  X.fillRect(0, 400, GW, 50);
+
+  // Frog on title
+  drawFrogAt(GW / 2 - CELL / 2, 256, COL.green, 0);
+
+  // Title
+  const g = 16 + Math.sin(t * 2) * 8;
+  X.shadowColor = COL.green; X.shadowBlur = g;
+  X.fillStyle = COL.green;
+  X.font = '42px "Press Start 2P"';
+  X.fillText('NEON', GW / 2, 110);
+  X.shadowColor = COL.amber;
+  X.fillStyle = COL.amber;
+  X.font = '42px "Press Start 2P"';
+  X.fillText('HOP', GW / 2, 160);
+  X.shadowBlur = 0;
+
+  X.strokeStyle = COL.green; X.lineWidth = 1.5;
+  X.shadowColor = COL.green; X.shadowBlur = 8;
+  X.beginPath(); X.moveTo(140, 178); X.lineTo(340, 178); X.stroke();
+  X.shadowBlur = 0;
+
+  X.fillStyle = COL.cyan;
+  X.font = '9px "Press Start 2P"';
+  if (Math.sin(t * 3) > 0) X.fillText('TAP / ANY KEY TO PLAY', GW / 2, 210);
+
+  X.fillStyle = '#778899';
+  X.font = '7px "Press Start 2P"';
+  X.fillText('ARROWS / WASD / SWIPE = HOP', GW / 2, 480);
+  X.fillText('CROSS ROAD & RIVER TO REACH HOME', GW / 2, 498);
+
+  X.fillStyle = COL.purple;
+  X.font = '7px "Press Start 2P"';
+  X.fillText('★ EVERY 3RD LEVEL: NIGHT MODE ★', GW / 2, 520);
+
+  if (hiScore > 0) {
+    X.fillStyle = COL.amber;
+    X.font = '9px "Press Start 2P"';
+    X.fillText('HI-SCORE: ' + hiScore, GW / 2, 545);
+  }
+
+  X.fillStyle = '#445';
+  X.font = '6px "Press Start 2P"';
+  X.fillText('© 1999 NEON ARCADE', GW / 2, GH - 12);
+
+  X.restore();
+}
+
+function drawGameOver() {
+  X.save();
+  X.fillStyle = 'rgba(0,0,0,0.6)';
+  X.fillRect(0, 0, GW, GH);
+
+  X.textAlign = 'center';
+  X.shadowColor = COL.red; X.shadowBlur = 20;
+  X.fillStyle = COL.red;
+  X.font = '28px "Press Start 2P"';
+  X.fillText('GAME OVER', GW / 2, 240);
+  X.shadowBlur = 0;
+
+  X.fillStyle = COL.white;
+  X.font = '13px "Press Start 2P"';
+  X.fillText('SCORE: ' + score, GW / 2, 300);
+
+  X.fillStyle = '#aaa';
+  X.font = '9px "Press Start 2P"';
+  X.fillText('REACHED LEVEL ' + level, GW / 2, 335);
+
+  if (score >= hiScore && hiScore > 0) {
+    X.fillStyle = COL.amber; X.font = '11px "Press Start 2P"';
+    if (Math.sin(Date.now() * 0.005) > 0) X.fillText('NEW HIGH SCORE!', GW / 2, 375);
+  }
+
+  X.fillStyle = COL.green; X.font = '9px "Press Start 2P"';
+  if (Math.sin(Date.now() * 0.003) > 0) X.fillText('TAP / KEY TO RETRY', GW / 2, 430);
+
+  X.restore();
+}
+
+// ─── Loop ───
+let last = 0;
+function loop(now) {
+  if (now - last >= 16) { update(); draw(); last = now; }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

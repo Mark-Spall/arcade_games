@@ -20,5 +20,19 @@
     "href": "/games/void-defender.html",
     "description": "Defender-style rescue mission: fly, bomb, save humans.",
     "tags": ["Defender", "Arcade", "Rescue"]
+  },
+  {
+    "id": "neon-break",
+    "title": "Neon Break",
+    "href": "/games/neon-break.html",
+    "description": "Neon brick breaker with power-ups and bosses.",
+    "tags": ["Breakout", "Arcade", "Neon"]
+  },
+  {
+    "id": "neon-hop",
+    "title": "Neon Hop",
+    "href": "/games/neon-hop.html",
+    "description": "Cross traffic and the river in glowing lanes.",
+    "tags": ["Frogger", "Arcade", "Neon"]
   }
 ]

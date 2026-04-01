@@ -367,6 +367,47 @@ function nextLevel() {
   spawnInitialAsteroids();
 }
 
+// ─── Leaderboard (local + API; works even if dynamic import of scores.js fails) ───
+const ARCADE_SCORE_NS = 'arcade_scores_v1';
+function arcadeLeaderboardFallback(gameId, name, scoreVal, limit) {
+  const s = Math.floor(Number(scoreVal));
+  if (!Number.isFinite(s)) return;
+  try {
+    let all = {};
+    try {
+      all = JSON.parse(localStorage.getItem(ARCADE_SCORE_NS) || '{}');
+    } catch (_) {
+      all = {};
+    }
+    const list = Array.isArray(all[gameId]) ? all[gameId] : [];
+    list.push({ name, score: s, at: new Date().toISOString() });
+    list.sort((a, b) => b.score - a.score);
+    all[gameId] = list.slice(0, Math.max(1, Math.min(50, limit)));
+    localStorage.setItem(ARCADE_SCORE_NS, JSON.stringify(all));
+  } catch (_) {}
+  fetch(`/api/scores?gameId=${encodeURIComponent(gameId)}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name, score: s, limit }),
+  }).catch(() => {});
+}
+
+function promptAndSubmitNeonRocks(finalScore) {
+  const raw = prompt('GAME OVER — Enter initials (max 12):', 'AAA');
+  const name = raw == null ? 'AAA' : raw.trim() || 'AAA';
+  const gid = 'neon-rocks';
+  const lim = 10;
+  import('/scores.js')
+    .then((mod) => {
+      try {
+        mod.submitScore({ gameId: gid, name, score: finalScore, limit: lim });
+      } catch (_) {
+        arcadeLeaderboardFallback(gid, name, finalScore, lim);
+      }
+    })
+    .catch(() => arcadeLeaderboardFallback(gid, name, finalScore, lim));
+}
+
 // ─── Shooting ───
 let shootCD = 0;
 
@@ -403,15 +444,7 @@ function update() {
         if (!arcadeScoreSubmitted) {
           arcadeScoreSubmitted = true;
           const finalScore = score;
-          setTimeout(() => {
-            import('/scores.js')
-              .then(({ submitScore }) => {
-                const raw = prompt('GAME OVER — Enter initials (max 12):', 'AAA');
-                const name = raw == null ? 'AAA' : raw.trim() || 'AAA';
-                submitScore({ gameId: 'neon-rocks', name, score: finalScore, limit: 10 });
-              })
-              .catch(() => {});
-          }, 0);
+          setTimeout(() => promptAndSubmitNeonRocks(finalScore), 0);
         }
       }
     }
