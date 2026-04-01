@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZONE COLLAPSE</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+  
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  
+  body {
+    background: #020108;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    overflow: hidden;
+    font-family: 'Press Start 2P', monospace;
+  }
+  
+  #cab {
+    position: relative;
+    border: 4px solid #111;
+    border-radius: 8px;
+    box-shadow: 
+      0 0 50px rgba(255, 0, 80, 0.2),
+      0 0 100px rgba(0, 255, 200, 0.1),
+      inset 0 0 40px rgba(0, 0, 0, 0.9);
+    background: #050505;
+    padding: 8px;
+  }
+  
+  #cv {
+    display: block;
+    border-radius: 4px;
+    background: #110000; /* Reddish base for the storm */
+  }
+  
+  #crt {
+    position: absolute;
+    top: 8px; left: 8px; right: 8px; bottom: 8px;
+    border-radius: 4px;
+    pointer-events: none;
+    z-index: 10;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(0, 0, 0, 0.15) 0px,
+      rgba(0, 0, 0, 0.15) 1px,
+      transparent 1px,
+      transparent 2px
+    );
+  }
+  
+  #crt::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 4px;
+    background: radial-gradient(ellipse at center, transparent 40%, rgba(20, 0, 0, 0.6) 100%);
+  }
+</style>
+</head>
+<body>
+
+<div id="cab">
+  <canvas id="cv" width="400" height="500"></canvas>
+  <div id="crt"></div>
+</div>
+
+<script>
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+
+// --- Leaderboard submission (global + offline cache via /scores.js) ---
+const GAME_ID = 'neon-zone-collapse';
+const TOTAL_PLAYERS = 10; // You + 9 bots
+let arcadeScoreSubmitted = false;
+let lastPlaced = null;
+let lastElims = null;
+
+function queueZoneCollapseScore({ placed }) {
+  if (arcadeScoreSubmitted) return;
+  arcadeScoreSubmitted = true;
+
+  const p = Math.max(1, Math.floor(Number(placed) || TOTAL_PLAYERS));
+  const elims = Math.max(0, Math.min(TOTAL_PLAYERS - 1, (TOTAL_PLAYERS - p)));
+  lastPlaced = p;
+  lastElims = elims;
+
+  setTimeout(() => {
+    import('/scores.js')
+      .then(({ submitScore }) => {
+        const raw = prompt('HIGH SCORE — Enter initials (max 12):', 'AAA');
+        const name = raw == null ? 'AAA' : raw.trim() || 'AAA';
+        submitScore({ gameId: GAME_ID, name, score: elims, limit: 10 });
+      })
+      .catch(() => {});
+  }, 0);
+}
+
+// --- Aesthetics ---
+const C_SAFE = '#0a0a1a';
+const C_ZONE = '#ff003c';
+const C_PLY = '#00ffff';
+const C_BOT = '#ff00ff';
+const C_BUL = '#ffff00';
+const C_LOOT = '#39ff14';
+
+// --- Game State ---
+let state = 'TITLE'; // TITLE, PLAY, OVER, WIN
+let frames = 0;
+let zoneRadius = 350;
+
+let p = { x: 200, y: 250, hp: 100, maxHp: 100, speed: 2.5, reload: 0, power: 1 };
+let keys = { w:0, a:0, s:0, d:0, ArrowUp:0, ArrowLeft:0, ArrowDown:0, ArrowRight:0 };
+let pointer = { active: false, x: 200, y: 250 };
+
+let bots = [];
+let bullets = [];
+let loot = [];
+let particles = [];
+
+// --- Input Handling ---
+window.addEventListener('keydown', e => { if(keys[e.key] !== undefined) keys[e.key] = 1; });
+window.addEventListener('keyup', e => { if(keys[e.key] !== undefined) keys[e.key] = 0; });
+
+function handlePointer(e) {
+  e.preventDefault();
+  if (state !== 'PLAY' && (e.type === 'mousedown' || e.type === 'touchstart')) { 
+    initGame(); return; 
+  }
+  let rect = cv.getBoundingClientRect();
+  let touch = e.touches ? e.touches[0] : e;
+  if(touch) {
+    pointer.x = (touch.clientX - rect.left) * (cv.width / rect.width);
+    pointer.y = (touch.clientY - rect.top) * (cv.height / rect.height);
+  }
+  pointer.active = e.type !== 'mouseup' && e.type !== 'touchend';
+}
+cv.addEventListener('mousedown', handlePointer);
+cv.addEventListener('mousemove', e => { if(pointer.active) handlePointer(e); });
+window.addEventListener('mouseup', handlePointer);
+cv.addEventListener('touchstart', handlePointer, {passive: false});
+cv.addEventListener('touchmove', handlePointer, {passive: false});
+window.addEventListener('touchend', handlePointer);
+
+function initGame() {
+  p = { x: 200, y: 250, hp: 100, maxHp: 100, speed: 2.5, reload: 0, power: 1 };
+  zoneRadius = 350;
+  frames = 0;
+  bots = []; bullets = []; loot = []; particles = [];
+  arcadeScoreSubmitted = false;
+  lastPlaced = null;
+  lastElims = null;
+  
+  // Spawn 9 Bots
+  for(let i=0; i<9; i++) {
+    let bx = Math.random() * cv.width;
+    let by = Math.random() * cv.height;
+    // Don't spawn too close to player
+    if (Math.hypot(by - p.y, bx - p.x) < 100) bx += 100;
+    bots.push({
+      x: bx, y: by, hp: 50, speed: 1.2 + Math.random()*0.8, reload: 0,
+      tx: bx, ty: by, state: 'WANDER' // WANDER, FLEE_ZONE, ATTACK
+    });
+  }
+  
+  // Spawn initial loot
+  for(let i=0; i<3; i++) {
+    loot.push({x: 50 + Math.random()*(cv.width-100), y: 50 + Math.random()*(cv.height-100)});
+  }
+  
+  state = 'PLAY';
+}
+
+function spawnParticle(x, y, color, count, speed=3) {
+  for(let i=0; i<count; i++) {
+    particles.push({
+      x, y, 
+      vx: (Math.random()-0.5)*speed, vy: (Math.random()-0.5)*speed,
+      life: 15 + Math.random()*15,
+      color
+    });
+  }
+}
+
+function getNearestTarget(entity, targets) {
+  let nearest = null;
+  let minDist = Infinity;
+  for (let t of targets) {
+    let dist = Math.hypot(t.y - entity.y, t.x - entity.x);
+    if (dist < minDist) { minDist = dist; nearest = t; }
+  }
+  return { target: nearest, dist: minDist };
+}
+
+// --- Game Loop ---
+function update() {
+  if (state !== 'PLAY') {
+    if ((keys.w || keys.ArrowUp) && (state === 'OVER' || state === 'WIN')) initGame();
+    return;
+  }
+  
+  frames++;
+
+  // 1. Shrink Zone
+  if (frames % 2 === 0 && zoneRadius > 10) zoneRadius -= 0.15;
+
+  // 2. Player Movement
+  let dx = 0, dy = 0;
+  if (pointer.active) {
+    let dist = Math.hypot(pointer.y - p.y, pointer.x - p.x);
+    if (dist > 5) { dx = (pointer.x - p.x) / dist; dy = (pointer.y - p.y) / dist; }
+  } else {
+    if (keys.w || keys.ArrowUp) dy -= 1;
+    if (keys.s || keys.ArrowDown) dy += 1;
+    if (keys.a || keys.ArrowLeft) dx -= 1;
+    if (keys.d || keys.ArrowRight) dx += 1;
+    let dist = Math.hypot(dx, dy);
+    if (dist > 0) { dx /= dist; dy /= dist; }
+  }
+  p.x += dx * p.speed; p.y += dy * p.speed;
+  p.x = Math.max(8, Math.min(cv.width-8, p.x));
+  p.y = Math.max(8, Math.min(cv.height-8, p.y));
+
+  // Player Zone Damage
+  let distToCenter = Math.hypot(p.y - cv.height/2, p.x - cv.width/2);
+  if (distToCenter > zoneRadius) {
+    p.hp -= 0.5;
+    if (frames % 10 === 0) spawnParticle(p.x, p.y, C_ZONE, 1);
+  }
+
+  // Player Auto-Fire
+  p.reload--;
+  if (p.reload <= 0 && bots.length > 0) {
+    let { target, dist } = getNearestTarget(p, bots);
+    if (target && dist < 200) {
+      let ang = Math.atan2(target.y - p.y, target.x - p.x);
+      bullets.push({x: p.x, y: p.y, vx: Math.cos(ang)*8, vy: Math.sin(ang)*8, isPlayer: true, dmg: 15 * p.power});
+      p.reload = Math.max(10, 30 - p.power * 5); // Shoots faster with more power
+      spawnParticle(p.x, p.y, C_BUL, 3, 1);
+    }
+  }
+
+  // 3. Collect Loot
+  for (let i = loot.length - 1; i >= 0; i--) {
+    let l = loot[i];
+    if (Math.hypot(p.y - l.y, p.x - l.x) < 15) {
+      p.power = Math.min(4, p.power + 1);
+      p.hp = Math.min(p.maxHp, p.hp + 25);
+      spawnParticle(l.x, l.y, C_LOOT, 20);
+      loot.splice(i, 1);
+    }
+  }
+
+  // 4. Update Bots
+  for (let i = bots.length - 1; i >= 0; i--) {
+    let b = bots[i];
+    
+    // AI Logic
+    let distToCenterBot = Math.hypot(b.y - cv.height/2, b.x - cv.width/2);
+    let potentialTargets = [...bots.filter(ob => ob !== b), p];
+    let { target, dist } = getNearestTarget(b, potentialTargets);
+
+    if (distToCenterBot > zoneRadius - 20) {
+      b.state = 'FLEE_ZONE';
+      b.tx = cv.width/2 + (Math.random()-0.5)*50;
+      b.ty = cv.height/2 + (Math.random()-0.5)*50;
+    } else if (target && dist < 150) {
+      b.state = 'ATTACK';
+    } else {
+      if (frames % 60 === 0 && Math.random() < 0.5) {
+        b.state = 'WANDER';
+        b.tx = b.x + (Math.random()-0.5)*100;
+        b.ty = b.y + (Math.random()-0.5)*100;
+      }
+    }
+
+    // Bot Movement
+    if (b.state === 'FLEE_ZONE' || b.state === 'WANDER') {
+      let ang = Math.atan2(b.ty - b.y, b.tx - b.x);
+      b.x += Math.cos(ang) * b.speed;
+      b.y += Math.sin(ang) * b.speed;
+    }
+
+    // Bot Zone Damage
+    if (distToCenterBot > zoneRadius) b.hp -= 0.5;
+
+    // Bot Fire
+    b.reload--;
+    if (b.state === 'ATTACK' && target && b.reload <= 0) {
+      let ang = Math.atan2(target.y - b.y, target.x - b.x);
+      bullets.push({x: b.x, y: b.y, vx: Math.cos(ang)*5, vy: Math.sin(ang)*5, isPlayer: false, dmg: 10, owner: b});
+      b.reload = 40 + Math.random()*30;
+    }
+
+    // Death
+    if (b.hp <= 0) {
+      spawnParticle(b.x, b.y, C_BOT, 30);
+      if (Math.random() < 0.3) loot.push({x: b.x, y: b.y}); // Drop loot
+      bots.splice(i, 1);
+    }
+  }
+
+  // 5. Update Bullets
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    let b = bullets[i];
+    b.x += b.vx; b.y += b.vy;
+
+    // Out of bounds
+    if (b.x < 0 || b.x > cv.width || b.y < 0 || b.y > cv.height) {
+      bullets.splice(i, 1); continue;
+    }
+
+    let hit = false;
+    if (b.isPlayer) {
+      // Check bots
+      for (let j = bots.length - 1; j >= 0; j--) {
+        if (Math.hypot(bots[j].y - b.y, bots[j].x - b.x) < 12) {
+          bots[j].hp -= b.dmg;
+          spawnParticle(b.x, b.y, C_BUL, 5);
+          hit = true; break;
+        }
+      }
+    } else {
+      // Check player
+      if (Math.hypot(p.y - b.y, p.x - b.x) < 10) {
+        p.hp -= b.dmg;
+        spawnParticle(b.x, b.y, C_ZONE, 10);
+        hit = true;
+      }
+      // Check other bots (friendly fire is ON in Battle Royale!)
+      if (!hit) {
+        for (let j = bots.length - 1; j >= 0; j--) {
+          if (bots[j] !== b.owner && Math.hypot(bots[j].y - b.y, bots[j].x - b.x) < 12) {
+            bots[j].hp -= b.dmg;
+            spawnParticle(b.x, b.y, C_BUL, 5);
+            hit = true; break;
+          }
+        }
+      }
+    }
+    if (hit) bullets.splice(i, 1);
+  }
+
+  // 6. Particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    let pt = particles[i];
+    pt.x += pt.vx; pt.y += pt.vy; pt.life--;
+    if (pt.life <= 0) particles.splice(i, 1);
+  }
+
+  // 7. Win/Loss Conditions
+  if (p.hp <= 0) {
+    state = 'OVER';
+    queueZoneCollapseScore({ placed: bots.length + 1 });
+  } else if (bots.length === 0) {
+    state = 'WIN';
+    queueZoneCollapseScore({ placed: 1 });
+  }
+}
+
+// --- Rendering ---
+function draw() {
+  ctx.clearRect(0, 0, cv.width, cv.height);
+
+  // Draw Safe Zone
+  ctx.fillStyle = C_SAFE;
+  ctx.beginPath();
+  ctx.arc(cv.width/2, cv.height/2, Math.max(0, zoneRadius), 0, Math.PI*2);
+  ctx.fill();
+
+  // Zone border
+  ctx.shadowColor = C_ZONE; ctx.shadowBlur = 15;
+  ctx.strokeStyle = C_ZONE; ctx.lineWidth = 3;
+  ctx.stroke();
+  
+  // Danger Grid outside zone
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(255,0,60,0.1)';
+  ctx.lineWidth = 1;
+  for(let i=0; i<cv.width; i+=20) {
+    ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,cv.height); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(cv.width,i); ctx.stroke();
+  }
+
+  ctx.lineJoin = 'round';
+
+  // Draw Loot
+  loot.forEach(l => {
+    ctx.shadowColor = C_LOOT; ctx.shadowBlur = 10;
+    ctx.fillStyle = C_LOOT;
+    ctx.fillRect(l.x - 5, l.y - 5, 10, 10);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(l.x - 2, l.y - 2, 4, 4);
+  });
+
+  // Draw Particles
+  particles.forEach(pt => {
+    ctx.shadowColor = pt.color; ctx.shadowBlur = 5;
+    ctx.fillStyle = pt.color;
+    ctx.globalAlpha = pt.life / 30;
+    ctx.fillRect(pt.x, pt.y, 2, 2);
+  });
+  ctx.globalAlpha = 1;
+
+  // Draw Bots
+  bots.forEach(b => {
+    ctx.shadowColor = C_BOT; ctx.shadowBlur = 10;
+    ctx.fillStyle = C_BOT;
+    ctx.beginPath(); ctx.arc(b.x, b.y, 8, 0, Math.PI*2); ctx.fill();
+    // Bot HP bar
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#222'; ctx.fillRect(b.x - 10, b.y - 15, 20, 3);
+    ctx.fillStyle = C_ZONE; ctx.fillRect(b.x - 10, b.y - 15, 20 * (b.hp/50), 3);
+  });
+
+  // Draw Bullets
+  bullets.forEach(b => {
+    ctx.shadowColor = b.isPlayer ? C_BUL : C_ZONE; ctx.shadowBlur = 8;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(b.x, b.y, 2.5, 0, Math.PI*2); ctx.fill();
+  });
+
+  // Draw Player
+  if (state === 'PLAY' || state === 'WIN') {
+    ctx.shadowColor = C_PLY; ctx.shadowBlur = 15;
+    ctx.fillStyle = C_PLY;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 8, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI*2); ctx.fill();
+    
+    // Player HP Bar UI (bottom)
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#222'; ctx.fillRect(20, cv.height - 20, cv.width - 40, 10);
+    ctx.fillStyle = p.hp > 30 ? C_LOOT : C_ZONE; 
+    ctx.fillRect(20, cv.height - 20, (cv.width - 40) * Math.max(0, p.hp/p.maxHp), 10);
+    ctx.fillStyle = '#fff'; ctx.font = '8px "Press Start 2P"';
+    ctx.fillText(`HP: ${Math.ceil(Math.max(0, p.hp))}`, 25, cv.height - 11);
+    
+    // Power level
+    ctx.fillStyle = C_BUL;
+    ctx.fillText(`PWR: LVL ${p.power}`, cv.width - 90, cv.height - 11);
+  }
+
+  // --- UI ---
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#fff';
+  ctx.font = '10px "Press Start 2P"';
+  
+  if (state === 'PLAY') {
+    ctx.fillText(`ALIVE: ${bots.length + 1}`, 10, 20);
+    if (bots.length === 1) {
+      ctx.fillStyle = C_LOOT;
+      ctx.fillText(`1V1!`, cv.width/2 - 20, 20);
+    }
+  } else if (state === 'TITLE') {
+    ctx.fillStyle = 'rgba(0,0,0,0.85)'; ctx.fillRect(0,0,cv.width,cv.height);
+    ctx.textAlign = 'center';
+    ctx.shadowColor = C_ZONE; ctx.shadowBlur = 20;
+    ctx.fillStyle = C_ZONE; ctx.font = '22px "Press Start 2P"';
+    ctx.fillText('ZONE COLLAPSE', cv.width/2, cv.height/2 - 40);
+    
+    ctx.shadowBlur = 0; ctx.font = '8px "Press Start 2P"';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('STAY IN THE SAFE CIRCLE', cv.width/2, cv.height/2 + 10);
+    ctx.fillText('AUTO-FIRE ENGAGED', cv.width/2, cv.height/2 + 25);
+    ctx.fillStyle = C_LOOT;
+    ctx.fillText('COLLECT CRATES TO UPGRADE', cv.width/2, cv.height/2 + 40);
+    
+    if (Math.floor(Date.now() / 500) % 2 === 0) {
+      ctx.fillStyle = '#fff'; ctx.font = '10px "Press Start 2P"';
+      ctx.fillText('TAP/WASD TO DROP IN', cv.width/2, cv.height - 50);
+    }
+    ctx.textAlign = 'left';
+  } else if (state === 'OVER') {
+    ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.textAlign = 'center';
+    ctx.shadowColor = C_ZONE; ctx.shadowBlur = 20;
+    ctx.fillStyle = C_ZONE; ctx.font = '24px "Press Start 2P"';
+    ctx.fillText('ELIMINATED', cv.width/2, cv.height/2 - 20);
+    ctx.shadowBlur = 0; ctx.fillStyle = '#fff'; ctx.font = '12px "Press Start 2P"';
+    ctx.fillText(`PLACED: #${bots.length + 1}`, cv.width/2, cv.height/2 + 20);
+    if (lastElims != null) {
+      ctx.fillStyle = C_BUL; ctx.font = '10px "Press Start 2P"';
+      ctx.fillText(`ELIMS: ${lastElims}`, cv.width/2, cv.height/2 + 44);
+    }
+    
+    if (Math.floor(Date.now() / 500) % 2 === 0) {
+      ctx.fillStyle = '#aaa'; ctx.font = '10px "Press Start 2P"';
+      ctx.fillText('TAP TO RETRY', cv.width/2, cv.height/2 + 60);
+    }
+    ctx.textAlign = 'left';
+  } else if (state === 'WIN') {
+    ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.textAlign = 'center';
+    ctx.shadowColor = C_LOOT; ctx.shadowBlur = 20;
+    ctx.fillStyle = C_LOOT; ctx.font = '24px "Press Start 2P"';
+    ctx.fillText('CHAMPION', cv.width/2, cv.height/2 - 20);
+    ctx.shadowBlur = 0; ctx.fillStyle = '#fff'; ctx.font = '10px "Press Start 2P"';
+    ctx.fillText('LAST MACHINE STANDING', cv.width/2, cv.height/2 + 20);
+    if (lastElims != null) {
+      ctx.fillStyle = C_BUL; ctx.font = '10px "Press Start 2P"';
+      ctx.fillText(`ELIMS: ${lastElims}`, cv.width/2, cv.height/2 + 44);
+    }
+    
+    if (Math.floor(Date.now() / 500) % 2 === 0) {
+      ctx.fillStyle = C_PLY;
+      ctx.fillText('TAP TO PLAY AGAIN', cv.width/2, cv.height/2 + 60);
+    }
+    ctx.textAlign = 'left';
+  }
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+// Start
+loop();
+</script>
+</body>
+</html>

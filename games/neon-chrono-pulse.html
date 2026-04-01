@@ -90,41 +90,98 @@ let arcadeScoreSubmitted = false;
 
 let px = 200, py = 250, pSpeed = 3, pReload = 0;
 let keys = { w:0, a:0, s:0, d:0, ArrowUp:0, ArrowLeft:0, ArrowDown:0, ArrowRight:0 };
+let keysFire = 0;
 let pointer = { active: false, x: 200, y: 250 };
+let aimAng = 0;
+let mouseCanvas = { x: 300, y: 250, inside: false };
+let firePressed = false;
 
 let enemies = [];
 let bullets = [];
 let particles = [];
+let obstacles = [];
+const MAX_BOUNCES = 6;
+const BULLET_SPD = 11;
 
 // --- Input Handling ---
-window.addEventListener('keydown', e => { if(keys[e.key] !== undefined) keys[e.key] = 1; });
-window.addEventListener('keyup', e => { if(keys[e.key] !== undefined) keys[e.key] = 0; });
+window.addEventListener('keydown', e => {
+  if (keys[e.key] !== undefined) keys[e.key] = 1;
+  if (e.code === 'Space') { e.preventDefault(); keysFire = 1; }
+});
+window.addEventListener('keyup', e => {
+  if (keys[e.key] !== undefined) keys[e.key] = 0;
+  if (e.code === 'Space') keysFire = 0;
+});
+
+function canvasCoords(clientX, clientY) {
+  const rect = cv.getBoundingClientRect();
+  return {
+    x: (clientX - rect.left) * (cv.width / rect.width),
+    y: (clientY - rect.top) * (cv.height / rect.height),
+  };
+}
+
+cv.addEventListener('mousemove', e => {
+  const p = canvasCoords(e.clientX, e.clientY);
+  mouseCanvas.x = p.x;
+  mouseCanvas.y = p.y;
+  mouseCanvas.inside = true;
+});
+
+cv.addEventListener('mouseleave', () => { mouseCanvas.inside = false; });
 
 function handlePointer(e) {
   e.preventDefault();
-  if (state !== 'PLAY' && (e.type === 'mousedown' || e.type === 'touchstart')) { 
-    initGame(); return; 
-  }
-  let rect = cv.getBoundingClientRect();
-  let touch = e.touches ? e.touches[0] : e;
-  if(touch) {
+  const rect = cv.getBoundingClientRect();
+  const touch = e.touches ? e.touches[0] : e;
+  const isTouch = e.type.startsWith('touch');
+
+  if (touch && isTouch) {
     pointer.x = (touch.clientX - rect.left) * (cv.width / rect.width);
     pointer.y = (touch.clientY - rect.top) * (cv.height / rect.height);
   }
-  pointer.active = e.type !== 'mouseup' && e.type !== 'touchend';
+
+  if (state !== 'PLAY' && (e.type === 'mousedown' || e.type === 'touchstart')) {
+    initGame();
+    return;
+  }
+
+  if (state === 'PLAY') {
+    if (e.type === 'mousedown' && e.button === 0) firePressed = true;
+    if (e.type === 'touchstart') {
+      const inFireZone = pointer.x > cv.width * 0.62;
+      if (inFireZone) firePressed = true;
+    }
+  }
+
+  if (isTouch) {
+    pointer.active = e.type !== 'touchend' && e.type !== 'touchcancel';
+  }
 }
 cv.addEventListener('mousedown', handlePointer);
-cv.addEventListener('mousemove', e => { if(pointer.active) handlePointer(e); });
 window.addEventListener('mouseup', handlePointer);
-cv.addEventListener('touchstart', handlePointer, {passive: false});
-cv.addEventListener('touchmove', handlePointer, {passive: false});
+cv.addEventListener('touchstart', handlePointer, { passive: false });
+cv.addEventListener('touchmove', handlePointer, { passive: false });
 window.addEventListener('touchend', handlePointer);
 
+function initObstacles() {
+  obstacles = [
+    { x: 40, y: 100, w: 72, h: 14 },
+    { x: 288, y: 100, w: 72, h: 14 },
+    { x: 160, y: 200, w: 80, h: 14 },
+    { x: 90, y: 320, w: 64, h: 14 },
+    { x: 246, y: 320, w: 64, h: 14 },
+    { x: 175, y: 420, w: 50, h: 14 },
+  ];
+}
+
 function initGame() {
-  px = 200; py = 250; 
+  px = 200; py = 250;
   score = 0; frames = 0;
   timeScale = 0.05; targetTimeScale = 0.05;
+  aimAng = 0;
   enemies = []; bullets = []; particles = [];
+  initObstacles();
   state = 'PLAY';
   arcadeScoreSubmitted = false;
 }
@@ -162,10 +219,54 @@ function spawnParticle(x, y, color, count, speed = 2) {
   }
 }
 
+function bouncePlayerBulletOffObstacles(b) {
+  for (const o of obstacles) {
+    const cx = Math.max(o.x, Math.min(b.x, o.x + o.w));
+    const cy = Math.max(o.y, Math.min(b.y, o.y + o.h));
+    const dx = b.x - cx;
+    const dy = b.y - cy;
+    const d2 = dx * dx + dy * dy;
+    if (d2 >= b.radius * b.radius) continue;
+    if (b.bounces >= MAX_BOUNCES) {
+      b.dead = true;
+      return;
+    }
+    const d = Math.sqrt(d2) || 0.0001;
+    b.bounces++;
+    const nx = dx / d;
+    const ny = dy / d;
+    const pen = b.radius - d + 0.6;
+    b.x += nx * pen;
+    b.y += ny * pen;
+    const dot = b.vx * nx + b.vy * ny;
+    b.vx -= 2 * dot * nx;
+    b.vy -= 2 * dot * ny;
+    b.vx *= 0.98;
+    b.vy *= 0.98;
+    spawnParticle(b.x, b.y, '#88ffff', 4, 1.5);
+    return;
+  }
+}
+
+function spawnEnemyBurst() {
+  if (enemies.length > 22) return;
+  const ringR = 90 + Math.random() * 70;
+  const n = 2 + (Math.random() * 3) | 0;
+  for (let k = 0; k < n; k++) {
+    const a = Math.random() * Math.PI * 2;
+    enemies.push({
+      x: px + Math.cos(a) * ringR,
+      y: py + Math.sin(a) * ringR,
+      reload: 55 + Math.random() * 35,
+      radius: 8,
+    });
+  }
+}
+
 // --- Game Loop ---
 function update() {
   if (state !== 'PLAY') {
-    if ((keys.w || keys.ArrowUp) && state === 'OVER') initGame();
+    if (state === 'OVER' && (keys.w || keys.ArrowUp || keysFire)) initGame();
     return;
   }
   
@@ -201,34 +302,59 @@ function update() {
   px = Math.max(10, Math.min(cv.width-10, px));
   py = Math.max(10, Math.min(cv.height-10, py));
 
-  // 2. Player Auto-Fire (Affected by timeScale - you must move to reload!)
-  pReload -= 1 * timeScale;
-  if (pReload <= 0 && enemies.length > 0) {
-    // Find nearest enemy
-    let nearest = enemies.reduce((prev, curr) => {
-      let d1 = Math.hypot(curr.y - py, curr.x - px);
-      let d2 = Math.hypot(prev.y - py, prev.x - px);
-      return d1 < d2 ? curr : prev;
-    });
-    
-    let ang = Math.atan2(nearest.y - py, nearest.x - px);
-    bullets.push({ 
-      x: px, y: py, 
-      vx: Math.cos(ang) * 12, vy: Math.sin(ang) * 12, 
-      isPlayer: true, radius: 4 
-    });
-    spawnParticle(px, py, C_PBUL, 3, 1);
-    pReload = 25; // Base reload frames
+  // Aim: mouse > touch aim > arrow keys > movement vector
+  if (mouseCanvas.inside) {
+    aimAng = Math.atan2(mouseCanvas.y - py, mouseCanvas.x - px);
+  } else if (pointer.active) {
+    aimAng = Math.atan2(pointer.y - py, pointer.x - px);
+  } else {
+    let ax = 0, ay = 0;
+    if (keys.ArrowLeft) ax -= 1;
+    if (keys.ArrowRight) ax += 1;
+    if (keys.ArrowUp) ay -= 1;
+    if (keys.ArrowDown) ay += 1;
+    if (ax || ay) {
+      const al = Math.hypot(ax, ay);
+      aimAng = Math.atan2(ay / al, ax / al);
+    } else if (isMoving) {
+      aimAng = Math.atan2(dy, dx);
+    }
   }
 
-  // 3. Spawning Enemies (Spawns faster as score increases)
-  let spawnRate = Math.max(30, 100 - score * 2);
-  if (frames * timeScale % spawnRate < timeScale) {
-    let side = Math.floor(Math.random() * 4);
-    let ex = side===0 ? -20 : side===1 ? cv.width+20 : Math.random()*cv.width;
-    let ey = side===2 ? -20 : side===3 ? cv.height+20 : Math.random()*cv.height;
-    enemies.push({ x: ex, y: ey, reload: 60 + Math.random()*40, radius: 8 });
+  // 2. Manual fire — you choose where pulses go (Space / click / touch fire zone)
+  pReload -= 1 * timeScale;
+  const wantsFire = keysFire || firePressed;
+  firePressed = false;
+  if (wantsFire && pReload <= 0) {
+    bullets.push({
+      x: px + Math.cos(aimAng) * 10,
+      y: py + Math.sin(aimAng) * 10,
+      vx: Math.cos(aimAng) * BULLET_SPD,
+      vy: Math.sin(aimAng) * BULLET_SPD,
+      isPlayer: true,
+      radius: 4,
+      bounces: 0,
+    });
+    spawnParticle(px, py, C_PBUL, 3, 1);
+    pReload = 18;
   }
+
+  // 3. Spawning — more pressure over time; mix edge + ring spawns
+  const diff = Math.min(1, frames / 7200);
+  const spawnEvery = Math.max(16, 52 - score - diff * 40);
+  if (frames % spawnEvery === 0) {
+    const side = Math.floor(Math.random() * 4);
+    const ex = side === 0 ? -20 : side === 1 ? cv.width + 20 : Math.random() * cv.width;
+    const ey = side === 2 ? -20 : side === 3 ? cv.height + 20 : Math.random() * cv.height;
+    enemies.push({ x: ex, y: ey, reload: 50 + Math.random() * 40, radius: 8 });
+    if (Math.random() < 0.45 + diff * 0.35) {
+      const s2 = Math.floor(Math.random() * 4);
+      const ex2 = s2 === 0 ? -20 : s2 === 1 ? cv.width + 20 : Math.random() * cv.width;
+      const ey2 = s2 === 2 ? -20 : s2 === 3 ? cv.height + 20 : Math.random() * cv.height;
+      enemies.push({ x: ex2, y: ey2, reload: 55 + Math.random() * 40, radius: 8 });
+    }
+  }
+  if (frames % 200 === 90 && enemies.length < Math.min(26, 12 + (score >> 1))) spawnEnemyBurst();
 
   // 4. Update Enemies
   for (let i = enemies.length - 1; i >= 0; i--) {
@@ -236,8 +362,9 @@ function update() {
     
     // Move towards player slowly
     let ang = Math.atan2(py - e.y, px - e.x);
-    e.x += Math.cos(ang) * 1.2 * timeScale;
-    e.y += Math.sin(ang) * 1.2 * timeScale;
+    const esp = (1.35 + Math.min(0.5, score / 400)) * timeScale;
+    e.x += Math.cos(ang) * esp;
+    e.y += Math.sin(ang) * esp;
 
     // Enemy Fire
     e.reload -= 1 * timeScale;
@@ -263,14 +390,21 @@ function update() {
     b.x += b.vx * timeScale;
     b.y += b.vy * timeScale;
 
-    // Out of bounds
-    if (b.x < -20 || b.x > cv.width+20 || b.y < -20 || b.y > cv.height+20) {
+    if (b.isPlayer) {
+      bouncePlayerBulletOffObstacles(b);
+      if (b.dead) {
+        bullets.splice(i, 1);
+        continue;
+      }
+    }
+
+    if (b.x < -24 || b.x > cv.width + 24 || b.y < -24 || b.y > cv.height + 24) {
       bullets.splice(i, 1);
       continue;
     }
 
     if (b.isPlayer) {
-      // Check hit enemy
+      let hit = false;
       for (let j = enemies.length - 1; j >= 0; j--) {
         let e = enemies[j];
         if (Math.hypot(b.y - e.y, b.x - e.x) < b.radius + e.radius + 2) {
@@ -278,11 +412,12 @@ function update() {
           enemies.splice(j, 1);
           bullets.splice(i, 1);
           score++;
+          hit = true;
           break;
         }
       }
+      if (hit) continue;
     } else {
-      // Check hit player
       if (Math.hypot(b.y - py, b.x - px) < b.radius + 6) {
         spawnParticle(px, py, C_PLY, 30, 4);
         gameOver();
@@ -314,6 +449,17 @@ function draw() {
   for(let y=offsetY; y<cv.height; y+=40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(cv.width,y); ctx.stroke(); }
 
   ctx.lineJoin = 'round';
+
+  obstacles.forEach(o => {
+    ctx.shadowColor = '#00ffff';
+    ctx.shadowBlur = 10;
+    ctx.strokeStyle = 'rgba(0,240,255,0.7)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(o.x, o.y, o.w, o.h);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(0,255,255,0.07)';
+    ctx.fillRect(o.x, o.y, o.w, o.h);
+  });
 
   // Draw Particles
   particles.forEach(p => {
@@ -353,22 +499,27 @@ function draw() {
     ctx.globalAlpha = 1.0;
   });
 
+  if (state === 'PLAY') {
+    ctx.fillStyle = 'rgba(255,255,0,0.035)';
+    ctx.fillRect(cv.width * 0.62, 0, cv.width * 0.38, cv.height);
+    ctx.strokeStyle = 'rgba(255,255,0,0.4)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 6]);
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    ctx.lineTo(px + Math.cos(aimAng) * 62, py + Math.sin(aimAng) * 62);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
   // Draw Player
   if (state !== 'TITLE' && state !== 'OVER') {
     ctx.shadowColor = C_PLY; ctx.shadowBlur = 15;
     ctx.strokeStyle = C_PLY; ctx.lineWidth = 2;
     
-    // Draw a triangle pointing towards movement or mouse
-    let ang = 0;
-    if (pointer.active) {
-      ang = Math.atan2(pointer.y - py, pointer.x - px);
-    } else {
-      ang = Math.atan2(py - cv.height/2, px - cv.width/2); // Default look
-    }
-    
     ctx.save();
     ctx.translate(px, py);
-    ctx.rotate(ang);
+    ctx.rotate(aimAng);
     ctx.beginPath();
     ctx.moveTo(8, 0);
     ctx.lineTo(-6, 6);
@@ -387,6 +538,11 @@ function draw() {
   
   if (state === 'PLAY') {
     ctx.fillText(`KILLS:${score}`, 10, 20);
+    ctx.fillStyle = '#778899';
+    ctx.font = '7px "Press Start 2P"';
+    ctx.fillText('SPACE / CLICK — FIRE', 10, cv.height - 10);
+    ctx.font = '10px "Press Start 2P"';
+    ctx.fillStyle = '#fff';
     
     // Time Dilation Indicator
     ctx.textAlign = 'right';
@@ -404,12 +560,18 @@ function draw() {
     
     ctx.shadowBlur = 0; ctx.font = '8px "Press Start 2P"';
     ctx.fillStyle = '#aaa';
-    ctx.fillText('TIME ONLY MOVES', cv.width/2, cv.height/2 + 10);
-    ctx.fillText('WHEN YOU MOVE', cv.width/2, cv.height/2 + 25);
+    ctx.fillText('TIME ONLY MOVES WHEN YOU MOVE', cv.width/2, cv.height/2 + 6);
+    ctx.fillText('AIM: MOUSE OR ARROW KEYS', cv.width/2, cv.height/2 + 24);
+    ctx.fillText('WASD MOVE • SPACE / CLICK TO FIRE', cv.width/2, cv.height/2 + 42);
+    ctx.fillStyle = C_PBUL;
+    ctx.fillText('PULSES RICOCHET OFF BARRIERS', cv.width/2, cv.height/2 + 60);
+    ctx.fillStyle = '#8899aa';
+    ctx.font = '7px "Press Start 2P"';
+    ctx.fillText('TOUCH: DRAG LEFT • TAP RIGHT ZONE TO FIRE', cv.width/2, cv.height/2 + 78);
     
     if (Math.floor(Date.now() / 500) % 2 === 0) {
       ctx.fillStyle = C_PBUL; ctx.font = '10px "Press Start 2P"';
-      ctx.fillText('DRAG/WASD TO START', cv.width/2, cv.height - 50);
+      ctx.fillText('TAP / KEY TO START', cv.width/2, cv.height - 44);
     }
     ctx.textAlign = 'left';
   } else if (state === 'OVER') {

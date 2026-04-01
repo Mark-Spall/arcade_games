@@ -87,5 +87,14 @@
     "image": "/games/posters/neon-chrono-pulse.svg",
     "description": "Time-dilation shooter: stop, aim, then move to unleash the pulse.",
     "tags": ["Shooter", "Arcade", "Neon"]
+  },
+  {
+    "id": "neon-zone-collapse",
+    "title": "Neon Zone Collapse",
+    "href": "/games/neon-zone-collapse.html",
+    "image": "/games/posters/neon-zone-collapse.svg",
+    "description": "Neon battle royale in a shrinking safe circle: auto-fire, loot crates, last one standing.",
+    "tags": ["Battle Royale", "Arcade", "Neon"],
+    "hot": true
   }
 ]
