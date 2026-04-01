@@ -1,4 +1,4 @@
-import { clearScores, getAllScores, getScores, syncAllScoresFromServer } from "/scores.js";
+import { getAllScores, getScores, syncAllScoresFromServer } from "/scores.js";
 
 async function loadManifest() {
   const res = await fetch("/games/games.json", { cache: "no-cache" });
@@ -136,8 +136,7 @@ async function refreshScores() {
 
 async function setUpScores(manifest) {
   const sel = document.getElementById("hsGame");
-  const clearBtn = document.getElementById("hsClear");
-  if (!sel || !clearBtn) return;
+  if (!sel) return;
 
   const all = getAllScores();
   const known = new Map(manifest.map((g) => [g.id, g.title]));
@@ -159,11 +158,6 @@ async function setUpScores(manifest) {
   }
 
   sel.addEventListener("change", refreshScores);
-  clearBtn.addEventListener("click", () => {
-    const id = getSelectedGameId();
-    if (!id) return;
-    void clearScores(id).then(() => refreshScores());
-  });
 
   await syncAllScoresFromServer(
     manifest.map((g) => g.id),

@@ -75,7 +75,6 @@
           <h2 class="panel-title">SCOREBOARD</h2>
           <div class="controls">
             <select id="gameSelect" class="select" aria-label="Select game"></select>
-            <button id="clearBtn" class="btn btn-ghost" type="button">Clear</button>
           </div>
         </div>
         <div style="padding: 4px 16px 16px">
@@ -95,7 +94,7 @@
     </main>
 
     <script type="module">
-      import { clearScores, getAllScores, getScores, syncAllScoresFromServer } from "/scores.js";
+      import { getAllScores, getScores, syncAllScoresFromServer } from "/scores.js";
 
       async function loadManifest() {
         const res = await fetch("/games/games.json", { cache: "no-cache" });
@@ -185,11 +184,6 @@
         }
 
         sel.addEventListener("change", refresh);
-        document.getElementById("clearBtn").addEventListener("click", () => {
-          const id = getSelectedGameId();
-          if (!id) return;
-          void clearScores(id).then(() => refresh());
-        });
 
         await refresh();
       })();

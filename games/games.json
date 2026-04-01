@@ -47,5 +47,13 @@
     "image": "/games/neon-runner.png",
     "description": "Neon platformer: dash, climb, collect coins, beat the clock.",
     "tags": ["Platformer", "Arcade", "Neon"]
+  },
+  {
+    "id": "neon-gobbler",
+    "title": "Neon Gobbler",
+    "href": "/games/neon-gobbler.html",
+    "image": "/games/posters/neon-gobbler.svg",
+    "description": "Pac-style maze chase: eat pellets, avoid ghosts, power up to hunt.",
+    "tags": ["Maze", "Arcade", "Neon"]
   }
 ]

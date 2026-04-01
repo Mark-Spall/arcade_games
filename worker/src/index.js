@@ -64,7 +64,7 @@ function corsOptions() {
     status: 204,
     headers: {
       "access-control-allow-origin": "*",
-      "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
+      "access-control-allow-methods": "GET,POST,OPTIONS",
       "access-control-allow-headers": "content-type",
       "access-control-max-age": "86400",
     },
@@ -96,11 +96,6 @@ async function handleApi(request, env) {
     const limit = clampLimit(url.searchParams.get("limit") ?? 10, 10);
     const entries = (await getBoard(env, gameId)).slice(0, limit);
     return json({ ok: true, gameId, entries }, { headers: cors });
-  }
-
-  if (request.method === "DELETE") {
-    await env.SCORES.delete(keyFor(gameId));
-    return json({ ok: true, gameId }, { headers: cors });
   }
 
   if (request.method === "POST") {

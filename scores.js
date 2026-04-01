@@ -92,7 +92,6 @@ export async function clearScores(gameId) {
     const all = loadAllScores();
     delete all[gameId];
     saveAllScores(all);
-    await clearScoresServer(gameId).catch(() => {});
     return;
   }
   localStorage.removeItem(SCORE_NS);
@@ -144,10 +143,5 @@ export async function getScoresServer(gameId, { limit = 10 } = {}) {
   return data.entries ?? [];
 }
 
-export async function clearScoresServer(gameId) {
-  const res = await fetch(apiUrl(`/api/scores?gameId=${encodeURIComponent(gameId)}`), { method: "DELETE" });
-  if (!res.ok) throw new Error(`clearScoresServer failed (${res.status})`);
-  const data = await res.json();
-  if (!data?.ok) throw new Error(data?.error || "clearScoresServer failed");
-}
+// Intentionally no server-side clear endpoint.
 
