@@ -39,5 +39,13 @@
     "image": "/games/posters/neon-hop.svg",
     "description": "Cross traffic and the river in glowing lanes.",
     "tags": ["Frogger", "Arcade", "Neon"]
+  },
+  {
+    "id": "neon-runner",
+    "title": "Neon Runner",
+    "href": "/games/neon-runner.html",
+    "image": "/games/neon-runner.png",
+    "description": "Neon platformer: dash, climb, collect coins, beat the clock.",
+    "tags": ["Platformer", "Arcade", "Neon"]
   }
 ]

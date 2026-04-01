@@ -1,0 +1,1236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NEON RUNNER</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#04020c;display:flex;justify-content:center;align-items:center;min-height:100vh;overflow:hidden;font-family:'Press Start 2P',monospace}
+  #cab{position:relative;border:3px solid #1a1a3a;border-radius:10px;box-shadow:0 0 40px rgba(180,0,255,.15),0 0 80px rgba(0,200,255,.08),inset 0 0 40px rgba(0,0,0,.9);background:#08081a;padding:6px}
+  #cv{display:block;border-radius:5px;image-rendering:pixelated}
+  #crt{position:absolute;top:6px;left:6px;right:6px;bottom:6px;border-radius:5px;pointer-events:none;z-index:10;background:repeating-linear-gradient(0deg,rgba(0,0,0,.08) 0px,rgba(0,0,0,.08) 1px,transparent 1px,transparent 2.5px)}
+  #crt::after{content:'';position:absolute;inset:0;border-radius:5px;background:radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,.4) 100%)}
+  #touch{display:none;position:fixed;bottom:8px;left:0;right:0;padding:0 12px;z-index:100;justify-content:space-between;align-items:flex-end}
+  .tp{display:flex;gap:6px;align-items:center}
+  .tb{background:rgba(0,180,255,.1);border:2px solid rgba(0,180,255,.3);color:#0bf;font-family:'Press Start 2P',monospace;font-size:12px;width:50px;height:50px;border-radius:50%;display:flex;align-items:center;justify-content:center;user-select:none;-webkit-user-select:none;touch-action:manipulation}
+  .tb:active{background:rgba(0,180,255,.25)}
+  @media(max-width:560px){#cab{border-width:2px;padding:3px;border-radius:6px}#crt{top:3px;left:3px;right:3px;bottom:3px}#touch{display:flex}}
+</style>
+</head>
+<body>
+<div id="cab"><canvas id="cv"></canvas><div id="crt"></div></div>
+<div id="touch">
+  <div class="tp">
+    <button class="tb" id="t-left">◀</button>
+    <button class="tb" id="t-right">▶</button>
+  </div>
+  <div class="tp">
+    <button class="tb" id="t-jump">▲</button>
+    <button class="tb" id="t-dash">⟩</button>
+  </div>
+</div>
+<script>
+// ═══════════════════════════════════════════════════
+//  NEON RUNNER — Data-Driven Platformer Engine
+// ═══════════════════════════════════════════════════
+const cv=document.getElementById('cv'),C=cv.getContext('2d');
+const GW=640,GH=400;
+
+function resize(){
+  const mw=Math.min(window.innerWidth-16,640),mh=Math.min(window.innerHeight-(window.innerWidth<560?80:16),400);
+  const s=Math.min(mw/GW,mh/GH);
+  cv.width=GW;cv.height=GH;
+  cv.style.width=Math.floor(GW*s)+'px';cv.style.height=Math.floor(GH*s)+'px';
+}
+resize();window.addEventListener('resize',resize);
+
+// ─── Audio ───
+const AC=window.AudioContext||window.webkitAudioContext;let ac;
+function ea(){if(!ac)ac=new AC()}
+function snd(f,d,t='square',v=.06){
+  ea();const o=ac.createOscillator(),g=ac.createGain();
+  o.type=t;o.frequency.setValueAtTime(f,ac.currentTime);
+  o.frequency.exponentialRampToValueAtTime(Math.max(f*.2,20),ac.currentTime+d);
+  g.gain.setValueAtTime(v,ac.currentTime);g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+d);
+  o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+d);
+}
+const SFX={
+  jump:()=>snd(400,.08,'square',.05),
+  walljump:()=>snd(500,.1,'square',.05),
+  dash:()=>snd(200,.12,'sawtooth',.04),
+  land:()=>snd(150,.04,'triangle',.03),
+  coin:()=>{snd(880,.06);setTimeout(()=>snd(1100,.06),50)},
+  gem:()=>{snd(660,.06);setTimeout(()=>snd(990,.06),40);setTimeout(()=>snd(1320,.08),80)},
+  key:()=>{snd(440,.08);setTimeout(()=>snd(660,.08),60);setTimeout(()=>snd(880,.08),120);setTimeout(()=>snd(1100,.1),180)},
+  door:()=>{snd(300,.1,'triangle',.05);setTimeout(()=>snd(450,.1,'triangle',.05),80)},
+  die:()=>{snd(300,.4,'sawtooth',.1);setTimeout(()=>snd(80,.5,'sawtooth',.08),150)},
+  bounce:()=>snd(600,.12,'triangle',.06),
+  crumble:()=>snd(80,.3,'sawtooth',.04),
+  exit:()=>{[440,660,880,1100,1320].forEach((f,i)=>setTimeout(()=>snd(f,.1),i*70))},
+  stomp:()=>snd(200,.1,'sawtooth',.05),
+};
+
+// ─── Colors / Themes ───
+const THEMES={
+  neon:{bg:'#06061a',plat:'#00e5ff',platEdge:'#0088aa',accent:'#ff00cc',accent2:'#39ff14',text:'#00e5ff',hazard:'#ff2244',
+    bgGrad:['#06061a','#0a0830'],stars:true},
+  cave:{bg:'#0a0418',plat:'#bb44ff',platEdge:'#6622aa',accent:'#ffaa00',accent2:'#ff44aa',text:'#bb44ff',hazard:'#ff6600',
+    bgGrad:['#0a0418','#120828'],stars:false},
+  lava:{bg:'#1a0808',plat:'#ff6600',platEdge:'#aa3300',accent:'#ffcc00',accent2:'#ff2244',text:'#ff6600',hazard:'#ff0000',
+    bgGrad:['#1a0808','#2a0a0a'],stars:false},
+  forest:{bg:'#041a08',plat:'#39ff14',platEdge:'#1a8800',accent:'#00ccff',accent2:'#ffcc00',text:'#39ff14',hazard:'#ff2244',
+    bgGrad:['#041a08','#082a10'],stars:true},
+  sky:{bg:'#081028',plat:'#00ccff',platEdge:'#0066aa',accent:'#ffcc00',accent2:'#ff66aa',text:'#00ccff',hazard:'#ff4444',
+    bgGrad:['#081028','#102040'],stars:true},
+  ice:{bg:'#081820',plat:'#88ddff',platEdge:'#4488aa',accent:'#ffffff',accent2:'#44aaff',text:'#88ddff',hazard:'#ff4444',
+    bgGrad:['#081820','#0a2030'],stars:true},
+};
+
+// ═══════════════════════════════════════════════════
+//  LEVEL DATA — Add new levels to this array!
+// ═══════════════════════════════════════════════════
+const LEVELS=[
+// ── LEVEL 1: First Steps ──
+{
+  name:"FIRST STEPS",theme:"neon",gravity:.45,timeLimit:0,
+  playerStart:{x:40,y:340},exit:{x:590,y:56},
+  platforms:[
+    {x:0,y:370,w:160,h:30,type:"solid"},
+    {x:200,y:330,w:80,h:16,type:"solid"},
+    {x:320,y:290,w:100,h:16,type:"solid"},
+    {x:180,y:240,w:70,h:16,type:"solid"},
+    {x:40,y:190,w:90,h:16,type:"solid"},
+    {x:170,y:150,w:60,h:16,type:"oneway"},
+    {x:300,y:190,w:80,h:16,type:"moving",moveAxis:"x",moveRange:100,moveSpeed:1.2},
+    {x:480,y:220,w:80,h:16,type:"solid"},
+    {x:500,y:140,w:60,h:16,type:"solid"},
+    {x:560,y:70,w:80,h:30,type:"solid"},
+    {x:440,y:370,w:200,h:30,type:"solid"},
+    {x:440,y:300,w:60,h:16,type:"bounce",bouncePower:11},
+  ],
+  hazards:[{x:280,y:370,w:160,h:14,type:"spikes"}],
+  collectibles:[
+    {x:230,y:300,type:"coin"},{x:350,y:260,type:"coin"},{x:200,y:210,type:"coin"},
+    {x:70,y:160,type:"coin"},{x:520,y:110,type:"gem",points:500},
+  ],
+  enemies:[{x:330,y:274,type:"walker",range:80}],
+  doors:[],
+},
+
+// ── LEVEL 2: Cavern Climb ──
+{
+  name:"CAVERN CLIMB",theme:"cave",gravity:.45,timeLimit:90,
+  playerStart:{x:40,y:360},exit:{x:560,y:40},
+  platforms:[
+    {x:0,y:384,w:200,h:16,type:"solid"},
+    {x:60,y:280,w:16,h:104,type:"ladder"},
+    {x:20,y:260,w:120,h:16,type:"solid"},
+    {x:180,y:320,w:80,h:16,type:"crumble",crumbleDelay:.6},
+    {x:300,y:300,w:80,h:16,type:"solid"},
+    {x:300,y:200,w:16,h:100,type:"ladder"},
+    {x:260,y:180,w:120,h:16,type:"solid"},
+    {x:420,y:260,w:100,h:16,type:"moving",moveAxis:"y",moveRange:80,moveSpeed:1},
+    {x:180,y:120,w:60,h:16,type:"solid"},
+    {x:80,y:100,w:60,h:16,type:"bounce",bouncePower:13},
+    {x:300,y:80,w:80,h:16,type:"solid"},
+    {x:420,y:120,w:60,h:16,type:"crumble",crumbleDelay:.4},
+    {x:520,y:60,w:120,h:16,type:"solid"},
+    {x:500,y:384,w:140,h:16,type:"solid"},
+    {x:420,y:384,w:40,h:16,type:"solid"},
+  ],
+  hazards:[
+    {x:240,y:384,w:160,h:14,type:"spikes"},
+    {x:150,y:170,w:16,h:16,type:"fireball",moveAxis:"y",moveRange:60,moveSpeed:2},
+  ],
+  collectibles:[
+    {x:100,y:240,type:"coin"},{x:330,y:270,type:"coin"},{x:450,y:220,type:"coin"},
+    {x:200,y:90,type:"coin"},{x:340,y:50,type:"gem",points:500},
+    {x:60,y:340,type:"key",id:"red"},
+  ],
+  enemies:[
+    {x:280,y:284,type:"walker",range:60},
+    {x:300,y:64,type:"walker",range:50},
+  ],
+  doors:[{x:530,y:44,w:24,h:32,keyRequired:"red"}],
+},
+
+// ── LEVEL 3: Neon Dash ──
+{
+  name:"NEON DASH",theme:"neon",gravity:.5,timeLimit:60,
+  playerStart:{x:30,y:360},exit:{x:600,y:340},
+  platforms:[
+    {x:0,y:384,w:100,h:16,type:"solid"},
+    {x:130,y:350,w:60,h:16,type:"conveyor",conveyorDir:1,conveyorSpeed:2},
+    {x:220,y:310,w:60,h:16,type:"solid"},
+    {x:310,y:270,w:60,h:16,type:"ice"},
+    {x:400,y:230,w:60,h:16,type:"crumble",crumbleDelay:.5},
+    {x:480,y:190,w:60,h:16,type:"solid"},
+    {x:380,y:140,w:60,h:16,type:"moving",moveAxis:"x",moveRange:80,moveSpeed:1.8},
+    {x:240,y:100,w:60,h:16,type:"bounce",bouncePower:12},
+    {x:100,y:60,w:80,h:16,type:"solid"},
+    {x:200,y:200,w:80,h:16,type:"oneway"},
+    {x:300,y:384,w:60,h:16,type:"solid"},
+    {x:430,y:384,w:60,h:16,type:"conveyor",conveyorDir:-1,conveyorSpeed:3},
+    {x:560,y:370,w:80,h:30,type:"solid"},
+    {x:520,y:300,w:40,h:16,type:"solid"},
+    {x:100,y:160,w:16,h:80,type:"ladder"},
+  ],
+  hazards:[
+    {x:190,y:384,w:100,h:14,type:"spikes"},
+    {x:340,y:384,w:80,h:14,type:"spikes"},
+    {x:460,y:100,w:16,h:16,type:"fireball",moveAxis:"x",moveRange:60,moveSpeed:2.5},
+  ],
+  collectibles:[
+    {x:155,y:320,type:"coin"},{x:240,y:280,type:"coin"},{x:335,y:240,type:"coin"},
+    {x:500,y:160,type:"coin"},{x:130,y:30,type:"gem",points:500},
+    {x:420,y:100,type:"coin"},{x:280,y:70,type:"coin"},
+  ],
+  enemies:[
+    {x:240,y:294,type:"walker",range:40},
+    {x:480,y:174,type:"walker",range:40},
+  ],
+  doors:[],
+},
+
+// ── LEVEL 4: Lava Fortress ──
+{
+  name:"LAVA FORTRESS",theme:"lava",gravity:.5,timeLimit:90,
+  playerStart:{x:40,y:340},exit:{x:580,y:40},
+  platforms:[
+    {x:0,y:370,w:120,h:30,type:"solid"},
+    {x:160,y:330,w:80,h:16,type:"moving",moveAxis:"x",moveRange:60,moveSpeed:1.5},
+    {x:300,y:290,w:60,h:16,type:"crumble",crumbleDelay:.4},
+    {x:380,y:290,w:60,h:16,type:"crumble",crumbleDelay:.4},
+    {x:480,y:320,w:100,h:16,type:"solid"},
+    {x:520,y:220,w:16,h:100,type:"ladder"},
+    {x:460,y:200,w:120,h:16,type:"solid"},
+    {x:340,y:180,w:80,h:16,type:"conveyor",conveyorDir:-1,conveyorSpeed:2.5},
+    {x:200,y:160,w:100,h:16,type:"solid"},
+    {x:80,y:200,w:60,h:16,type:"bounce",bouncePower:13},
+    {x:60,y:100,w:80,h:16,type:"solid"},
+    {x:180,y:80,w:60,h:16,type:"ice"},
+    {x:300,y:80,w:60,h:16,type:"solid"},
+    {x:400,y:100,w:60,h:16,type:"moving",moveAxis:"y",moveRange:50,moveSpeed:1.2},
+    {x:540,y:60,w:100,h:16,type:"solid"},
+    {x:0,y:384,w:640,h:16,type:"solid"},// bottom floor to catch with spikes
+  ],
+  hazards:[
+    {x:120,y:384,w:360,h:14,type:"spikes"},
+    {x:220,y:140,w:16,h:16,type:"fireball",moveAxis:"y",moveRange:70,moveSpeed:2},
+    {x:440,y:150,w:16,h:16,type:"fireball",moveAxis:"x",moveRange:50,moveSpeed:3},
+  ],
+  collectibles:[
+    {x:200,y:300,type:"coin"},{x:340,y:260,type:"coin"},{x:510,y:290,type:"coin"},
+    {x:500,y:170,type:"coin"},{x:380,y:150,type:"coin"},{x:230,y:130,type:"coin"},
+    {x:80,y:70,type:"gem",points:500},{x:200,y:50,type:"key",id:"gold"},
+  ],
+  enemies:[
+    {x:480,y:304,type:"walker",range:70},
+    {x:220,y:144,type:"walker",range:60},
+    {x:540,y:44,type:"walker",range:60},
+  ],
+  doors:[{x:590,y:28,w:24,h:32,keyRequired:"gold"}],
+},
+
+// ── LEVEL 5: Sky Garden ──
+{
+  name:"SKY GARDEN",theme:"sky",gravity:.4,timeLimit:75,
+  playerStart:{x:40,y:360},exit:{x:300,y:20},
+  platforms:[
+    {x:0,y:384,w:120,h:16,type:"solid"},
+    {x:140,y:340,w:70,h:16,type:"oneway"},
+    {x:240,y:300,w:60,h:16,type:"moving",moveAxis:"x",moveRange:100,moveSpeed:1.5},
+    {x:400,y:280,w:80,h:16,type:"solid"},
+    {x:500,y:340,w:60,h:16,type:"bounce",bouncePower:14},
+    {x:520,y:230,w:80,h:16,type:"solid"},
+    {x:400,y:180,w:60,h:16,type:"crumble",crumbleDelay:.5},
+    {x:280,y:200,w:60,h:16,type:"ice"},
+    {x:140,y:220,w:70,h:16,type:"solid"},
+    {x:40,y:180,w:60,h:16,type:"solid"},
+    {x:100,y:120,w:60,h:16,type:"moving",moveAxis:"y",moveRange:50,moveSpeed:1},
+    {x:220,y:100,w:80,h:16,type:"conveyor",conveyorDir:1,conveyorSpeed:1.5},
+    {x:380,y:80,w:60,h:16,type:"solid"},
+    {x:260,y:40,w:100,h:16,type:"solid"},
+    {x:560,y:140,w:16,h:100,type:"ladder"},
+    {x:540,y:120,w:60,h:16,type:"solid"},
+    // Floating platforms for wall-jumping
+    {x:0,y:130,w:16,h:80,type:"solid"},
+    {x:600,y:384,w:40,h:16,type:"solid"},
+  ],
+  hazards:[
+    {x:160,y:384,w:200,h:14,type:"spikes"},
+    {x:460,y:160,w:16,h:16,type:"fireball",moveAxis:"y",moveRange:80,moveSpeed:2},
+  ],
+  collectibles:[
+    {x:170,y:310,type:"coin"},{x:300,y:270,type:"coin"},{x:440,y:250,type:"coin"},
+    {x:540,y:200,type:"coin"},{x:320,y:170,type:"coin"},{x:60,y:150,type:"coin"},
+    {x:130,y:90,type:"coin"},{x:250,y:70,type:"coin"},
+    {x:400,y:50,type:"gem",points:500},
+  ],
+  enemies:[
+    {x:420,y:264,type:"walker",range:50},
+    {x:520,y:214,type:"flyer",moveAxis:"y",moveRange:60,moveSpeed:1.2},
+    {x:240,y:84,type:"walker",range:50},
+  ],
+  doors:[],
+},
+
+// ── LEVEL 6: Ice Gauntlet ──
+{
+  name:"ICE GAUNTLET",theme:"ice",gravity:.48,timeLimit:80,
+  playerStart:{x:40,y:350},exit:{x:580,y:50},
+  platforms:[
+    {x:0,y:384,w:140,h:16,type:"ice"},
+    {x:180,y:340,w:80,h:16,type:"ice"},
+    {x:300,y:300,w:60,h:16,type:"moving",moveAxis:"x",moveRange:80,moveSpeed:2},
+    {x:440,y:280,w:80,h:16,type:"ice"},
+    {x:560,y:320,w:80,h:16,type:"solid"},
+    {x:540,y:220,w:16,h:100,type:"ladder"},
+    {x:500,y:200,w:100,h:16,type:"solid"},
+    {x:380,y:180,w:60,h:16,type:"crumble",crumbleDelay:.35},
+    {x:260,y:160,w:60,h:16,type:"ice"},
+    {x:140,y:180,w:60,h:16,type:"bounce",bouncePower:12},
+    {x:60,y:120,w:80,h:16,type:"conveyor",conveyorDir:1,conveyorSpeed:3},
+    {x:180,y:80,w:60,h:16,type:"ice"},
+    {x:300,y:60,w:80,h:16,type:"moving",moveAxis:"y",moveRange:40,moveSpeed:1.5},
+    {x:420,y:100,w:60,h:16,type:"crumble",crumbleDelay:.3},
+    {x:540,y:70,w:100,h:16,type:"solid"},
+    {x:0,y:260,w:60,h:16,type:"solid"},
+  ],
+  hazards:[
+    {x:140,y:384,w:120,h:14,type:"spikes"},
+    {x:360,y:384,w:160,h:14,type:"spikes"},
+    {x:200,y:120,w:16,h:16,type:"fireball",moveAxis:"x",moveRange:50,moveSpeed:3},
+    {x:460,y:50,w:16,h:16,type:"fireball",moveAxis:"y",moveRange:60,moveSpeed:2.5},
+  ],
+  collectibles:[
+    {x:210,y:310,type:"coin"},{x:340,y:270,type:"coin"},{x:470,y:250,type:"coin"},
+    {x:530,y:170,type:"coin"},{x:300,y:130,type:"coin"},{x:100,y:90,type:"coin"},
+    {x:210,y:50,type:"coin"},{x:350,y:30,type:"gem",points:500},
+    {x:580,y:290,type:"key",id:"blue"},
+  ],
+  enemies:[
+    {x:180,y:324,type:"walker",range:60},
+    {x:460,y:264,type:"walker",range:50},
+    {x:260,y:144,type:"flyer",moveAxis:"x",moveRange:50,moveSpeed:1.5},
+    {x:540,y:54,type:"walker",range:60},
+  ],
+  doors:[{x:590,y:38,w:24,h:32,keyRequired:"blue"}],
+},
+]; // end LEVELS
+
+// ═══════════════════════════════════════════════════
+//  ENGINE
+// ═══════════════════════════════════════════════════
+
+let state='title'; // title, select, playing, dead, complete, gameover
+let score=0,totalCoins=0,levelIdx=0,levelsUnlocked=1;
+let arcadeScoreSubmitted=false;
+let screenShake=0,flashTimer=0;
+let cam={x:0,y:0};
+
+// Player
+const P={x:0,y:0,vx:0,vy:0,w:14,h:22,
+  onGround:false,onLadder:false,onIce:false,facing:1,
+  jumpBuffer:0,coyoteTime:0,wallSlideDir:0,
+  dashTimer:0,dashCooldown:0,dashDir:0,
+  alive:true,respawnTimer:0,
+  keys:[],
+  animFrame:0,animTimer:0,
+};
+
+// Level runtime
+let platforms=[],hazards=[],collectibles=[],enemies=[],doors=[];
+let particles=[];
+let levelTime=0,levelGravity=.45;
+let exitObj={x:0,y:0};
+let curTheme=THEMES.neon;
+
+// ─── Input ───
+const keys={};
+window.addEventListener('keydown',e=>{keys[e.key]=true;ea();if([' ','ArrowUp','ArrowDown'].includes(e.key))e.preventDefault()});
+window.addEventListener('keyup',e=>{keys[e.key]=false});
+
+const ts={};
+function addT(id,k){const el=document.getElementById(id);if(!el)return;
+  el.addEventListener('touchstart',e=>{e.preventDefault();ts[k]=true;ea()});
+  el.addEventListener('touchend',e=>{e.preventDefault();ts[k]=false});
+  el.addEventListener('touchcancel',e=>{e.preventDefault();ts[k]=false})}
+addT('t-left','left');addT('t-right','right');addT('t-jump','jump');addT('t-dash','dash');
+
+function K(k){
+  if(k==='left')return keys.ArrowLeft||keys.a||ts.left;
+  if(k==='right')return keys.ArrowRight||keys.d||ts.right;
+  if(k==='up')return keys.ArrowUp||keys.w||ts.jump;
+  if(k==='down')return keys.ArrowDown||keys.s;
+  if(k==='jump')return keys[' ']||keys.ArrowUp||keys.w||ts.jump;
+  if(k==='dash')return keys.Shift||keys.z||keys.x||ts.dash;
+  return false;
+}
+
+let prevJump=false,prevDash=false;
+function justPressed(k){
+  if(k==='jump'){const v=K('jump')&&!prevJump;return v;}
+  if(k==='dash'){const v=K('dash')&&!prevDash;return v;}
+  return false;
+}
+
+// Start/select listeners
+cv.addEventListener('click',()=>{ea();if(state==='title')state='select'});
+window.addEventListener('keydown',e=>{
+  ea();
+  if(state==='title'){state='select';return}
+  if(state==='select'){
+    const n=parseInt(e.key);
+    if(n>=1&&n<=LEVELS.length&&n<=levelsUnlocked){levelIdx=n-1;arcadeScoreSubmitted=false;startLevel()}
+  }
+  if(state==='dead'&&P.respawnTimer<=0)startLevel();
+  if(state==='complete'){
+    if(levelIdx<LEVELS.length-1){levelIdx++;startLevel()}
+    else {
+      queueNeonRunnerScore(score);
+      state='select';
+    }
+  }
+  if(state==='gameover')state='select';
+});
+cv.addEventListener('click',()=>{
+  if(state==='dead'&&P.respawnTimer<=0)startLevel();
+  if(state==='complete'){
+    if(levelIdx<LEVELS.length-1){levelIdx++;startLevel()}
+    else {
+      queueNeonRunnerScore(score);
+      state='select';
+    }
+  }
+  if(state==='gameover')state='select';
+});
+
+// ─── Particles ───
+function boom(x,y,col,n=8,spd=2.5){
+  for(let i=0;i<n;i++){const a=Math.PI*2/n*i+(Math.random()-.5)*.4,s=Math.random()*spd+.5;
+    particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1,decay:.025+Math.random()*.02,size:1.5+Math.random()*3,color:col})}}
+
+// ─── Load Level ───
+function startLevel(){
+  const lv=LEVELS[levelIdx];
+  curTheme=THEMES[lv.theme]||THEMES.neon;
+  levelGravity=lv.gravity||.45;
+  levelTime=lv.timeLimit||0;
+
+  P.x=lv.playerStart.x;P.y=lv.playerStart.y;
+  P.vx=0;P.vy=0;P.onGround=false;P.onLadder=false;P.onIce=false;
+  P.facing=1;P.alive=true;P.dashTimer=0;P.dashCooldown=0;
+  P.jumpBuffer=0;P.coyoteTime=0;P.wallSlideDir=0;
+  P.keys=[];P.animFrame=0;P.animTimer=0;
+
+  exitObj={x:lv.exit.x,y:lv.exit.y};
+
+  // Deep copy arrays
+  platforms=lv.platforms.map(p=>({...p,origX:p.x,origY:p.y,phase:Math.random()*Math.PI*2,
+    crumbleState:'solid',crumbleTimer:0,respawnTimer:0,shakeX:0}));
+  hazards=lv.hazards.map(h=>({...h,origX:h.x,origY:h.y,phase:Math.random()*Math.PI*2}));
+  collectibles=lv.collectibles.map(c=>({...c,collected:false,bobPhase:Math.random()*Math.PI*2}));
+  enemies=lv.enemies.map(e=>({...e,origX:e.x,origY:e.y,phase:Math.random()*Math.PI*2,
+    alive:true,vx:e.type==='walker'?1:0,flash:0,w:16,h:16}));
+  doors=lv.doors.map(d=>({...d,opened:false,w:d.w||24,h:d.h||32}));
+
+  particles=[];
+  cam.x=0;cam.y=0;
+  state='playing';
+  screenShake=0;flashTimer=0;
+}
+
+// ─── Rect collision ───
+function overlap(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y}
+
+// ─── Update ───
+function update(){
+  if(screenShake>0)screenShake-=.5;
+  if(flashTimer>0)flashTimer--;
+
+  if(state==='playing'&&!P.alive){
+    P.respawnTimer--;
+    if(P.respawnTimer<=0){
+      if(score<100){
+        state='gameover';
+        queueNeonRunnerScore(score);
+      }else{
+        score=Math.max(0,score-100);
+        startLevel();
+      }
+    }
+    updateParticles();
+    return;
+  }
+  if(state!=='playing')return;
+
+  // Timer
+  if(levelTime>0){
+    levelTime-=1/60;
+    if(levelTime<=0){playerDie();return}
+  }
+
+  // ── Update moving platforms/hazards ──
+  platforms.forEach(p=>{
+    if(p.type==='moving'){
+      p.phase+=.02*p.moveSpeed;
+      if(p.moveAxis==='x')p.x=p.origX+Math.sin(p.phase)*p.moveRange;
+      else p.y=p.origY+Math.sin(p.phase)*p.moveRange;
+    }
+    if(p.crumbleState==='shaking'){
+      p.crumbleTimer-=1/60;
+      p.shakeX=(Math.random()-.5)*4;
+      if(p.crumbleTimer<=0){p.crumbleState='fallen';p.respawnTimer=3;SFX.crumble();
+        boom(p.x+p.w/2,p.y+p.h/2,curTheme.plat,6,2)}
+    }
+    if(p.crumbleState==='fallen'){
+      p.respawnTimer-=1/60;
+      if(p.respawnTimer<=0)p.crumbleState='solid';
+    }
+    if(Math.abs(p.shakeX)>.1)p.shakeX*=.8;else p.shakeX=0;
+  });
+
+  hazards.forEach(h=>{
+    if(h.type==='fireball'){
+      h.phase+=.02*h.moveSpeed;
+      if(h.moveAxis==='x')h.x=h.origX+Math.sin(h.phase)*h.moveRange;
+      else h.y=h.origY+Math.sin(h.phase)*h.moveRange;
+    }
+  });
+
+  // ── Enemies ──
+  enemies.forEach(e=>{
+    if(!e.alive)return;
+    if(e.flash>0)e.flash--;
+    if(e.type==='walker'){
+      e.x+=e.vx;
+      if(Math.abs(e.x-e.origX)>e.range)e.vx*=-1;
+    }else if(e.type==='flyer'){
+      e.phase+=.02*(e.moveSpeed||1);
+      if(e.moveAxis==='x')e.x=e.origX+Math.sin(e.phase)*(e.moveRange||50);
+      else e.y=e.origY+Math.sin(e.phase)*(e.moveRange||50);
+    }
+  });
+
+  // ── Player movement ──
+  const accel=P.onIce?.15:.6;
+  const fric=P.onIce?.98:.82;
+  let wasOnLadder=P.onLadder;
+
+  if(P.dashTimer>0){
+    // Dashing
+    P.dashTimer--;
+    P.vx=P.dashDir*8;
+    P.vy=0;
+  }else{
+    if(K('left')){P.vx-=accel;P.facing=-1}
+    if(K('right')){P.vx+=accel;P.facing=1}
+    if(!K('left')&&!K('right'))P.vx*=fric;
+
+    // Ladder
+    wasOnLadder=P.onLadder;
+    P.onLadder=false;
+    platforms.forEach(p=>{
+      if(p.type==='ladder'&&p.crumbleState!=='fallen'){
+        if(P.x+P.w>p.x&&P.x<p.x+p.w&&P.y+P.h>p.y&&P.y<p.y+p.h){
+          if(K('up')||K('down'))P.onLadder=true;
+        }
+      }
+    });
+    if(P.onLadder){
+      P.vy=0;
+      if(K('up'))P.vy=-3;
+      if(K('down'))P.vy=3;
+      if(!K('up')&&!K('down'))P.vy=0;
+      P.onGround=false;
+    }else{
+      P.vy+=levelGravity;
+    }
+
+    // Wall slide
+    P.wallSlideDir=0;
+    if(!P.onGround&&!P.onLadder&&P.vy>0){
+      const wallCheck=4;
+      // Check left wall
+      let touchingWall=false;
+      platforms.forEach(p=>{
+        if(p.type==='ladder'||p.crumbleState==='fallen')return;
+        if(K('left')&&P.x-wallCheck<p.x+p.w&&P.x>p.x+p.w-wallCheck-2&&P.y+P.h>p.y+2&&P.y<p.y+p.h-2){
+          P.wallSlideDir=-1;touchingWall=true}
+        if(K('right')&&P.x+P.w+wallCheck>p.x&&P.x+P.w<p.x+wallCheck+2&&P.y+P.h>p.y+2&&P.y<p.y+p.h-2){
+          P.wallSlideDir=1;touchingWall=true}
+      });
+      if(touchingWall&&P.vy>1.5)P.vy=1.5; // Wall slide slow
+    }
+
+    // Jump
+    if(justPressed('jump')){
+      if(P.onGround||P.coyoteTime>0||P.onLadder){
+        P.vy=-8.5;P.onGround=false;P.coyoteTime=0;P.onLadder=false;SFX.jump();
+      }else if(P.wallSlideDir!==0){
+        P.vx=-P.wallSlideDir*6;P.vy=-8;P.coyoteTime=0;SFX.walljump();
+      }else{
+        P.jumpBuffer=6;
+      }
+    }
+    if(P.jumpBuffer>0){
+      P.jumpBuffer--;
+      if(P.onGround||P.coyoteTime>0){
+        P.vy=-8.5;P.onGround=false;P.coyoteTime=0;P.jumpBuffer=0;SFX.jump();
+      }
+    }
+    // Variable jump height
+    if(!K('jump')&&P.vy<-2)P.vy*=.7;
+
+    // Dash
+    if(justPressed('dash')&&P.dashCooldown<=0){
+      P.dashTimer=8;
+      P.dashCooldown=30;
+      P.dashDir=P.facing;
+      P.vy=0;
+      SFX.dash();
+      boom(P.x+P.w/2,P.y+P.h/2,curTheme.accent,6,1.5);
+    }
+    if(P.dashCooldown>0)P.dashCooldown--;
+  }
+
+  // Speed cap
+  if(Math.abs(P.vx)>6)P.vx=6*Math.sign(P.vx);
+  if(P.vy>10)P.vy=10;
+
+  // ── Move X ──
+  P.x+=P.vx;
+  let conveyed=0;
+  P.onIce=false;
+
+  // Platform X collision (skip when on ladder — player passes through)
+  platforms.forEach(p=>{
+    if(p.type==='ladder'||p.crumbleState==='fallen')return;
+    if(p.type==='oneway')return;
+    if(P.onLadder)return; // climbing — pass through
+    const pb={x:p.x+(p.shakeX||0),y:p.y,w:p.w,h:p.h};
+    if(overlap({x:P.x,y:P.y,w:P.w,h:P.h},pb)){
+      if(wasOnLadder){
+        // Just dismounted ladder inside a platform — push up onto it
+        P.y=pb.y-P.h;P.vy=0;P.onGround=true;
+      }else{
+        if(P.vx>0)P.x=pb.x-P.w;
+        else if(P.vx<0)P.x=pb.x+pb.w;
+        P.vx=0;
+      }
+    }
+  });
+  // Door collision X
+  doors.forEach(d=>{
+    if(d.opened)return;
+    if(overlap({x:P.x,y:P.y,w:P.w,h:P.h},{x:d.x,y:d.y,w:d.w,h:d.h})){
+      if(P.keys.includes(d.keyRequired)){
+        d.opened=true;SFX.door();
+        boom(d.x+d.w/2,d.y+d.h/2,curTheme.accent2,10,3);
+      }else{
+        if(P.vx>0)P.x=d.x-P.w;else if(P.vx<0)P.x=d.x+d.w;P.vx=0;
+      }
+    }
+  });
+
+  // ── Move Y ──
+  P.y+=P.vy;
+  const wasOnGround=P.onGround;
+  P.onGround=false;
+
+  platforms.forEach(p=>{
+    if(p.type==='ladder'||p.crumbleState==='fallen')return;
+    const pb={x:p.x+(p.shakeX||0),y:p.y,w:p.w,h:p.h};
+
+    if(p.type==='oneway'){
+      // Only collide when falling onto top
+      if(P.vy>=0&&P.y+P.h>=pb.y&&P.y+P.h<=pb.y+pb.h+P.vy+2&&P.x+P.w>pb.x&&P.x<pb.x+pb.w){
+        if(!K('down')){
+          P.y=pb.y-P.h;P.vy=0;P.onGround=true;
+        }
+      }
+      return;
+    }
+
+    if(overlap({x:P.x,y:P.y,w:P.w,h:P.h},pb)){
+      if(P.vy>0&&P.y+P.h-P.vy<=pb.y+4){
+        // Landing on top
+        P.y=pb.y-P.h;P.vy=0;P.onGround=true;
+        // Platform-specific effects
+        if(p.type==='bounce'){P.vy=-p.bouncePower;P.onGround=false;SFX.bounce()}
+        if(p.type==='crumble'&&p.crumbleState==='solid'){p.crumbleState='shaking';p.crumbleTimer=p.crumbleDelay}
+        if(p.type==='ice')P.onIce=true;
+        if(p.type==='conveyor')conveyed=p.conveyorDir*p.conveyorSpeed;
+        // Move with moving platform
+        if(p.type==='moving'){
+          const prevX=p.moveAxis==='x'?p.origX+Math.sin(p.phase-.02*p.moveSpeed)*p.moveRange:p.x;
+          const prevY=p.moveAxis==='y'?p.origY+Math.sin(p.phase-.02*p.moveSpeed)*p.moveRange:p.y;
+          P.x+=p.x-prevX;P.y+=p.y-prevY;
+        }
+      }else if(P.vy<0&&!P.onLadder&&P.y-P.vy>=pb.y+pb.h-4){
+        // Head bump (skip when on ladder — climb through)
+        P.y=pb.y+pb.h;P.vy=0;
+      }
+    }
+  });
+
+  if(conveyed)P.vx+=conveyed*.3;
+
+  if(!wasOnGround&&P.onGround&&P.dashTimer<=0)SFX.land();
+  if(wasOnGround&&!P.onGround&&P.vy>=0)P.coyoteTime=5;
+  if(P.coyoteTime>0)P.coyoteTime--;
+
+  // Fell off bottom
+  if(P.y>GH+50){playerDie();return}
+
+  // ── Hazard collision ──
+  hazards.forEach(h=>{
+    const hb=h.type==='fireball'?{x:h.x-6,y:h.y-6,w:12,h:12}:{x:h.x,y:h.y,w:h.w,h:h.h};
+    if(overlap({x:P.x,y:P.y,w:P.w,h:P.h},hb)){playerDie()}
+  });
+
+  // ── Enemy collision ──
+  enemies.forEach(e=>{
+    if(!e.alive)return;
+    if(overlap({x:P.x,y:P.y,w:P.w,h:P.h},{x:e.x,y:e.y,w:e.w,h:e.h})){
+      // Stomp from above?
+      if(P.vy>0&&P.y+P.h<e.y+e.h/2+4){
+        e.alive=false;P.vy=-7;score+=100;
+        SFX.stomp();boom(e.x+e.w/2,e.y+e.h/2,curTheme.accent,10,2.5);
+      }else if(P.dashTimer>0){
+        e.alive=false;score+=100;
+        SFX.stomp();boom(e.x+e.w/2,e.y+e.h/2,curTheme.accent,10,2.5);
+      }else{
+        playerDie();
+      }
+    }
+  });
+
+  // ── Collectibles ──
+  collectibles.forEach(c=>{
+    if(c.collected)return;
+    c.bobPhase+=.04;
+    const cx=c.x,cy=c.y+Math.sin(c.bobPhase)*3;
+    if(Math.abs(P.x+P.w/2-cx)<16&&Math.abs(P.y+P.h/2-cy)<16){
+      c.collected=true;
+      if(c.type==='coin'){score+=50;totalCoins++;SFX.coin();boom(cx,cy,curTheme.accent2,6,2)}
+      if(c.type==='gem'){score+=(c.points||500);SFX.gem();boom(cx,cy,'#fff',8,3)}
+      if(c.type==='key'){P.keys.push(c.id);SFX.key();boom(cx,cy,curTheme.accent,10,3)}
+    }
+  });
+
+  // ── Exit ──
+  if(Math.abs(P.x+P.w/2-exitObj.x)<20&&Math.abs(P.y+P.h/2-exitObj.y)<20){
+    // Check all doors opened (if any required)
+    const blockedDoor=doors.find(d=>!d.opened&&Math.abs(d.x-exitObj.x)<40&&Math.abs(d.y-exitObj.y)<40);
+    if(!blockedDoor){
+      SFX.exit();state='complete';
+      score+=Math.floor(Math.max(0,levelTime)*10);
+      levelsUnlocked=Math.max(levelsUnlocked,levelIdx+2);
+      flashTimer=8;
+    }
+  }
+
+  // Camera
+  // Camera (locked for single-screen levels)
+  cam.x=0;
+  cam.y=0;
+
+  // Animation
+  P.animTimer++;
+  if(P.animTimer>6){P.animTimer=0;P.animFrame=(P.animFrame+1)%4}
+
+  prevJump=K('jump');prevDash=K('dash');
+  updateParticles();
+}
+
+function playerDie(){
+  if(!P.alive)return;
+  P.alive=false;P.respawnTimer=60;
+  SFX.die();boom(P.x+P.w/2,P.y+P.h/2,curTheme.accent,16,4);
+  boom(P.x+P.w/2,P.y+P.h/2,'#fff',8,2);
+  flashTimer=10;
+}
+
+function updateParticles(){
+  particles=particles.filter(p=>{p.x+=p.vx;p.y+=p.vy;p.vy+=.04;p.life-=p.decay;return p.life>0});
+}
+
+// ═══════════════════════════════════════════════════
+//  DRAWING
+// ═══════════════════════════════════════════════════
+// Stars cache
+let starCache=null;
+function getStars(){
+  if(!starCache){starCache=[];for(let i=0;i<60;i++)starCache.push({x:Math.random()*GW*2,y:Math.random()*GH,b:Math.random()*.5+.2,s:Math.random()*1.5+.5})}
+  return starCache;
+}
+
+function draw(){
+  C.clearRect(0,0,GW,GH);
+  C.save();
+
+  // BG
+  const grad=C.createLinearGradient(0,0,0,GH);
+  grad.addColorStop(0,curTheme.bgGrad[0]);grad.addColorStop(1,curTheme.bgGrad[1]);
+  C.fillStyle=grad;C.fillRect(0,0,GW,GH);
+
+  if(state==='title'){drawTitle();C.restore();return}
+  if(state==='select'){drawSelect();C.restore();return}
+
+  // Stars
+  if(curTheme.stars){
+    const stars=getStars();const t=Date.now()*.001;
+    stars.forEach(st=>{
+      const a=st.b+Math.sin(t*2+st.x)*.15;
+      C.fillStyle=`rgba(180,200,255,${Math.max(0,a)})`;
+      C.fillRect((st.x-cam.x*.2)%GW,st.y,st.s,st.s);
+    });
+  }
+
+  if(flashTimer>0){C.fillStyle=`rgba(255,255,255,${Math.min(flashTimer*.07,.5)})`;C.fillRect(0,0,GW,GH)}
+
+  const ox=-cam.x,oy=-cam.y; // Camera offset (simple for single screen levels)
+
+  // ── Platforms ──
+  platforms.forEach(p=>{
+    if(p.crumbleState==='fallen')return;
+    const px=p.x+(p.shakeX||0),py=p.y;
+
+    if(p.type==='ladder'){
+      C.strokeStyle=curTheme.accent2;C.lineWidth=2;
+      C.globalAlpha=.7;
+      // Rungs
+      for(let ry=p.y;ry<p.y+p.h;ry+=12){
+        C.beginPath();C.moveTo(px+2,ry);C.lineTo(px+p.w-2,ry);C.stroke();
+      }
+      // Rails
+      C.beginPath();C.moveTo(px+2,p.y);C.lineTo(px+2,p.y+p.h);C.stroke();
+      C.beginPath();C.moveTo(px+p.w-2,p.y);C.lineTo(px+p.w-2,p.y+p.h);C.stroke();
+      C.globalAlpha=1;
+      return;
+    }
+
+    C.shadowColor=curTheme.plat;C.shadowBlur=p.type==='bounce'?8:4;
+
+    if(p.type==='bounce'){
+      C.fillStyle='#ff6600';
+      C.fillRect(px,py+4,p.w,p.h-4);
+      C.fillStyle='#ffcc00';
+      // Spring coils
+      for(let sx2=px+4;sx2<px+p.w-4;sx2+=8){
+        C.fillRect(sx2,py,3,6);
+      }
+    }else if(p.type==='ice'){
+      C.fillStyle='#88ddff';
+      C.fillRect(px,py,p.w,p.h);
+      C.fillStyle='rgba(255,255,255,.2)';
+      C.fillRect(px+2,py+2,p.w-4,p.h/3);
+      // Sparkle
+      C.fillStyle='#fff';
+      if(Math.sin(Date.now()*.005+px)>.5)C.fillRect(px+p.w*.3,py+2,2,2);
+      if(Math.sin(Date.now()*.005+px+1)>.5)C.fillRect(px+p.w*.7,py+2,2,2);
+    }else if(p.type==='conveyor'){
+      C.fillStyle=curTheme.plat;
+      C.fillRect(px,py,p.w,p.h);
+      // Arrows
+      C.fillStyle=curTheme.platEdge;
+      const aDir=p.conveyorDir;const aOff=(Date.now()*.003*p.conveyorSpeed*aDir)%12;
+      for(let ax=px+aOff;ax<px+p.w;ax+=12){
+        if(ax>px&&ax<px+p.w-4){
+          C.fillText(aDir>0?'›':'‹',ax,py+p.h-3);
+        }
+      }
+    }else if(p.type==='oneway'){
+      C.setLineDash([4,4]);C.strokeStyle=curTheme.plat;C.lineWidth=2;
+      C.beginPath();C.moveTo(px,py);C.lineTo(px+p.w,py);C.stroke();
+      C.setLineDash([]);
+      // Dots below
+      C.fillStyle=curTheme.plat;C.globalAlpha=.3;
+      for(let dx=px+4;dx<px+p.w;dx+=8)C.fillRect(dx,py+4,2,2);
+      C.globalAlpha=1;
+    }else if(p.type==='crumble'){
+      const shake=p.crumbleState==='shaking';
+      C.globalAlpha=shake?.5+Math.sin(Date.now()*.02)*.3:1;
+      C.fillStyle=curTheme.accent;
+      C.fillRect(px,py,p.w,p.h);
+      // Crack lines
+      C.strokeStyle='rgba(0,0,0,.3)';C.lineWidth=1;
+      C.beginPath();C.moveTo(px+p.w*.3,py);C.lineTo(px+p.w*.4,py+p.h);C.stroke();
+      C.beginPath();C.moveTo(px+p.w*.7,py);C.lineTo(px+p.w*.6,py+p.h);C.stroke();
+      C.globalAlpha=1;
+    }else if(p.type==='moving'){
+      C.fillStyle=curTheme.plat;
+      C.fillRect(px,py,p.w,p.h);
+      C.fillStyle='rgba(255,255,255,.15)';C.fillRect(px+2,py+2,p.w-4,p.h/3);
+      // Arrow indicators
+      C.fillStyle=curTheme.platEdge;C.globalAlpha=.5;
+      if(p.moveAxis==='x'){C.fillText('↔',px+p.w/2-4,py+p.h-2)}
+      else{C.fillText('↕',px+p.w/2-4,py+p.h-2)}
+      C.globalAlpha=1;
+    }else{
+      C.fillStyle=curTheme.plat;
+      C.fillRect(px,py,p.w,p.h);
+      C.fillStyle='rgba(255,255,255,.1)';C.fillRect(px+1,py+1,p.w-2,p.h/3);
+    }
+    C.shadowBlur=0;
+  });
+
+  // ── Hazards ──
+  hazards.forEach(h=>{
+    if(h.type==='spikes'){
+      C.fillStyle=curTheme.hazard;C.shadowColor=curTheme.hazard;C.shadowBlur=4;
+      for(let sx2=h.x;sx2<h.x+h.w;sx2+=10){
+        C.beginPath();C.moveTo(sx2,h.y+h.h);C.lineTo(sx2+5,h.y);C.lineTo(sx2+10,h.y+h.h);C.fill();
+      }
+      C.shadowBlur=0;
+    }else if(h.type==='fireball'){
+      C.fillStyle=curTheme.hazard;C.shadowColor=curTheme.hazard;C.shadowBlur=8;
+      C.beginPath();C.arc(h.x,h.y,6,0,Math.PI*2);C.fill();
+      C.fillStyle='#ffcc00';C.beginPath();C.arc(h.x,h.y,3,0,Math.PI*2);C.fill();
+      C.shadowBlur=0;
+    }
+  });
+
+  // ── Doors ──
+  doors.forEach(d=>{
+    if(d.opened)return;
+    C.fillStyle=d.keyRequired==='red'?'#ff4444':d.keyRequired==='gold'?'#ffaa00':'#4488ff';
+    C.shadowColor=C.fillStyle;C.shadowBlur=6;
+    C.fillRect(d.x,d.y,d.w,d.h);
+    // Keyhole
+    C.fillStyle='#000';
+    C.beginPath();C.arc(d.x+d.w/2,d.y+d.h*.55,3,0,Math.PI*2);C.fill();
+    C.fillRect(d.x+d.w/2-1,d.y+d.h*.55,2,6);
+    C.shadowBlur=0;
+    // Lock icon
+    C.font='6px "Press Start 2P"';C.fillStyle='#000';C.textAlign='center';
+    C.fillText('🔒',d.x+d.w/2,d.y+8);
+  });
+
+  // ── Exit ──
+  const ePulse=1+Math.sin(Date.now()*.005)*.2;
+  C.save();C.translate(exitObj.x,exitObj.y);C.scale(ePulse,ePulse);
+  C.shadowColor=curTheme.accent2;C.shadowBlur=12;
+  C.fillStyle=curTheme.accent2;
+  C.beginPath();C.moveTo(0,-10);C.lineTo(8,0);C.lineTo(4,0);C.lineTo(4,10);
+  C.lineTo(-4,10);C.lineTo(-4,0);C.lineTo(-8,0);C.closePath();C.fill();
+  C.shadowBlur=0;C.restore();
+
+  // ── Collectibles ──
+  collectibles.forEach(c=>{
+    if(c.collected)return;
+    const cy=c.y+Math.sin(c.bobPhase)*3;
+    C.shadowBlur=6;
+    if(c.type==='coin'){
+      C.fillStyle=curTheme.accent2;C.shadowColor=curTheme.accent2;
+      C.beginPath();C.arc(c.x,cy,5,0,Math.PI*2);C.fill();
+      C.fillStyle='rgba(255,255,255,.3)';C.beginPath();C.arc(c.x-1,cy-1,2,0,Math.PI*2);C.fill();
+    }else if(c.type==='gem'){
+      C.fillStyle='#fff';C.shadowColor='#fff';
+      C.beginPath();C.moveTo(c.x,cy-7);C.lineTo(c.x+6,cy);C.lineTo(c.x,cy+7);C.lineTo(c.x-6,cy);C.closePath();C.fill();
+      C.fillStyle=curTheme.accent;C.beginPath();C.moveTo(c.x,cy-4);C.lineTo(c.x+3,cy);C.lineTo(c.x,cy+4);C.lineTo(c.x-3,cy);C.closePath();C.fill();
+    }else if(c.type==='key'){
+      const kCol=c.id==='red'?'#ff4444':c.id==='gold'?'#ffaa00':'#4488ff';
+      C.fillStyle=kCol;C.shadowColor=kCol;
+      C.beginPath();C.arc(c.x,cy-3,4,0,Math.PI*2);C.fill();
+      C.fillRect(c.x-1,cy+1,2,7);
+      C.fillRect(c.x-3,cy+6,3,2);
+    }
+    C.shadowBlur=0;
+  });
+
+  // ── Enemies ──
+  enemies.forEach(e=>{
+    if(!e.alive)return;
+    C.save();C.translate(e.x+e.w/2,e.y+e.h/2);
+    if(e.flash>0)C.globalAlpha=.5+Math.sin(Date.now()*.05)*.5;
+    C.shadowColor=curTheme.hazard;C.shadowBlur=4;
+
+    if(e.type==='walker'){
+      C.fillStyle=curTheme.hazard;
+      // Body
+      C.fillRect(-7,-7,14,14);
+      // Eyes
+      C.fillStyle='#fff';C.fillRect(-5,-5,3,3);C.fillRect(3,-5,3,3);
+      // Feet (animated)
+      const step=Math.sin(Date.now()*.008+e.x)*3;
+      C.fillStyle=curTheme.hazard;
+      C.fillRect(-5,7,4,3+step);C.fillRect(2,7,4,3-step);
+    }else{
+      // Flyer
+      C.fillStyle=curTheme.accent;
+      C.beginPath();C.arc(0,0,8,0,Math.PI*2);C.fill();
+      C.fillStyle='#fff';C.fillRect(-4,-3,3,3);C.fillRect(2,-3,3,3);
+      // Wings
+      const wingFlap=Math.sin(Date.now()*.015)*4;
+      C.fillStyle=curTheme.accent;
+      C.fillRect(-12,-2+wingFlap,5,4);C.fillRect(8,-2-wingFlap,5,4);
+    }
+    C.shadowBlur=0;
+    C.restore();
+  });
+
+  // ── Particles ──
+  particles.forEach(p=>{
+    C.globalAlpha=Math.max(0,p.life);C.fillStyle=p.color;
+    const sz=p.size*p.life;C.fillRect(p.x-sz/2,p.y-sz/2,sz,sz);
+  });C.globalAlpha=1;
+
+  // ── Player ──
+  if(P.alive||(P.respawnTimer>30)){
+    if(!P.alive&&P.respawnTimer>30)return; // Already exploded
+    if(P.alive){
+      const blinkOff=P.dashTimer>0&&Math.floor(P.dashTimer/2)%2;
+      if(!blinkOff){
+        C.save();C.translate(P.x+P.w/2,P.y+P.h/2);
+        C.scale(P.facing,1);
+
+        C.shadowColor=curTheme.text;C.shadowBlur=8;
+
+        // Body
+        C.fillStyle=curTheme.text;
+        C.fillRect(-5,-11,10,14);
+        // Head
+        C.fillStyle=curTheme.text;
+        C.fillRect(-6,-14,12,8);
+        // Visor
+        C.fillStyle=P.dashTimer>0?curTheme.accent:'#fff';
+        C.fillRect(-1,-12,6,4);
+        // Legs (animated)
+        if(P.onGround&&Math.abs(P.vx)>.5){
+          const leg=Math.sin(P.animFrame*Math.PI/2)*3;
+          C.fillStyle=curTheme.platEdge;
+          C.fillRect(-4,3,4,5+leg);C.fillRect(1,3,4,5-leg);
+        }else{
+          C.fillStyle=curTheme.platEdge;
+          C.fillRect(-4,3,4,5);C.fillRect(1,3,4,5);
+        }
+        // Wall slide indicator
+        if(P.wallSlideDir!==0){
+          C.fillStyle='rgba(255,255,255,.4)';
+          for(let i=0;i<3;i++){
+            C.fillRect(P.wallSlideDir*8,i*5-8,2,3);
+          }
+        }
+        // Dash trail
+        if(P.dashTimer>0){
+          C.globalAlpha=.3;C.fillStyle=curTheme.accent;
+          C.fillRect(-P.facing*10,-10,8,18);
+          C.globalAlpha=1;
+        }
+
+        C.shadowBlur=0;
+        C.restore();
+      }
+    }
+  }
+
+  // ── HUD ──
+  drawHUD();
+
+  if(state==='dead')drawDead();
+  if(state==='complete')drawComplete();
+  if(state==='gameover')drawGameOver();
+
+  C.restore();
+}
+
+function drawHUD(){
+  C.save();C.textAlign='left';
+  C.fillStyle=curTheme.text;C.shadowColor=curTheme.text;C.shadowBlur=4;
+  C.font='8px "Press Start 2P"';
+  C.fillText('SCORE '+String(score).padStart(6,'0'),8,16);
+  C.shadowBlur=0;
+
+  // Keys
+  P.keys.forEach((k,i)=>{
+    const kc=k==='red'?'#ff4444':k==='gold'?'#ffaa00':'#4488ff';
+    C.fillStyle=kc;C.beginPath();C.arc(8+i*16,28,4,0,Math.PI*2);C.fill();
+  });
+
+  // Level name
+  C.textAlign='center';C.fillStyle='rgba(255,255,255,.4)';C.font='7px "Press Start 2P"';
+  C.fillText(LEVELS[levelIdx].name,GW/2,16);
+
+  // Timer
+  if(LEVELS[levelIdx].timeLimit>0){
+    const t=Math.max(0,Math.ceil(levelTime));
+    C.textAlign='right';
+    C.fillStyle=t<=10?'#ff2244':curTheme.accent2;
+    C.font='9px "Press Start 2P"';
+    C.fillText(String(t),GW-10,16);
+  }
+
+  // Dash cooldown
+  if(P.dashCooldown>0){
+    const pct=1-P.dashCooldown/30;
+    C.fillStyle='rgba(255,255,255,.2)';C.fillRect(GW-50,22,30,3);
+    C.fillStyle=curTheme.accent;C.fillRect(GW-50,22,30*pct,3);
+  }else{
+    C.fillStyle=curTheme.accent;C.font='6px "Press Start 2P"';C.textAlign='right';
+    C.fillText('DASH ✓',GW-8,28);
+  }
+
+  C.restore();
+}
+
+function drawTitle(){
+  const t=Date.now()*.001;
+  // Stars
+  const stars=getStars();
+  stars.forEach(st=>{
+    const a=st.b+Math.sin(t*2+st.x)*.15;
+    C.fillStyle=`rgba(180,200,255,${Math.max(0,a)})`;
+    C.fillRect(st.x%GW,st.y,st.s,st.s);
+  });
+
+  C.save();C.textAlign='center';
+  const g=16+Math.sin(t*2)*8;
+  C.shadowColor='#ff00cc';C.shadowBlur=g;C.fillStyle='#ff00cc';
+  C.font='38px "Press Start 2P"';C.fillText('NEON',GW/2,130);
+  C.shadowColor='#00e5ff';C.fillStyle='#00e5ff';
+  C.font='32px "Press Start 2P"';C.fillText('RUNNER',GW/2,175);
+  C.shadowBlur=0;
+
+  C.strokeStyle='#ff00cc';C.lineWidth=1.5;C.shadowColor='#ff00cc';C.shadowBlur=8;
+  C.beginPath();C.moveTo(160,192);C.lineTo(480,192);C.stroke();C.shadowBlur=0;
+
+  C.fillStyle='#39ff14';C.font='9px "Press Start 2P"';
+  if(Math.sin(t*3)>0)C.fillText('PRESS ANY KEY / TAP',GW/2,240);
+
+  C.fillStyle='#778899';C.font='7px "Press Start 2P"';
+  C.fillText('ARROWS/WASD = MOVE • SPACE = JUMP',GW/2,290);
+  C.fillText('SHIFT/Z = DASH • WALL-JUMP OFF WALLS',GW/2,308);
+
+  C.fillStyle='#556';C.font='6px "Press Start 2P"';
+  C.fillText('© 1997 NEON ARCADE',GW/2,380);
+  C.restore();
+}
+
+function drawSelect(){
+  const t=Date.now()*.001;
+  const stars=getStars();
+  stars.forEach(st=>{
+    const a=st.b+Math.sin(t*2+st.x)*.15;
+    C.fillStyle=`rgba(180,200,255,${Math.max(0,a)})`;
+    C.fillRect(st.x%GW,st.y,st.s,st.s);
+  });
+
+  C.save();C.textAlign='center';
+  C.fillStyle='#00e5ff';C.shadowColor='#00e5ff';C.shadowBlur=8;
+  C.font='16px "Press Start 2P"';C.fillText('SELECT LEVEL',GW/2,50);
+  C.shadowBlur=0;
+
+  LEVELS.forEach((lv,i)=>{
+    const locked=i>=levelsUnlocked;
+    const col=i%2===0?GW/2-130:GW/2+130;
+    const row=Math.floor(i/2);
+    const y=90+row*80;
+    const th=THEMES[lv.theme];
+
+    C.fillStyle=locked?'rgba(255,255,255,.06)':'rgba(255,255,255,.08)';
+    C.strokeStyle=locked?'rgba(255,255,255,.1)':th.plat;
+    C.lineWidth=locked?1:1.5;
+    if(!locked){C.shadowColor=th.plat;C.shadowBlur=4}
+
+    const bw=200,bh=60;
+    C.fillRect(col-bw/2,y,bw,bh);
+    C.strokeRect(col-bw/2,y,bw,bh);
+    C.shadowBlur=0;
+
+    C.textAlign='center';
+    C.fillStyle=locked?'#444':th.text;
+    C.font='9px "Press Start 2P"';
+    C.fillText(locked?'LOCKED':lv.name,col,y+22);
+    C.fillStyle=locked?'#333':'#888';
+    C.font='7px "Press Start 2P"';
+    C.fillText(locked?'• • •':`PRESS ${i+1}  •  ${lv.theme.toUpperCase()}`,col,y+42);
+  });
+
+  C.fillStyle='#666';C.textAlign='center';C.font='7px "Press Start 2P"';
+  C.fillText('TAP A LEVEL OR PRESS 1-'+Math.min(LEVELS.length,levelsUnlocked),GW/2,GH-20);
+  C.restore();
+
+  // Handle click on level select
+}
+
+// Click handler for level select
+cv.addEventListener('click',e=>{
+  if(state!=='select')return;
+  const rect=cv.getBoundingClientRect();
+  const mx=(e.clientX-rect.left)/rect.width*GW;
+  const my=(e.clientY-rect.top)/rect.height*GH;
+  LEVELS.forEach((lv,i)=>{
+    if(i>=levelsUnlocked)return;
+    const col=i%2===0?GW/2-130:GW/2+130;
+    const row=Math.floor(i/2);
+    const y=90+row*80;
+    if(mx>col-100&&mx<col+100&&my>y&&my<y+60){
+      levelIdx=i;arcadeScoreSubmitted=false;startLevel();
+    }
+  });
+});
+
+function drawDead(){
+  C.save();C.fillStyle='rgba(0,0,0,.4)';C.fillRect(0,0,GW,GH);
+  C.textAlign='center';C.fillStyle='#ff2244';C.shadowColor='#ff2244';C.shadowBlur=10;
+  C.font='18px "Press Start 2P"';C.fillText('WASTED',GW/2,GH/2-10);
+  C.shadowBlur=0;C.fillStyle='#aaa';C.font='8px "Press Start 2P"';
+  if(Math.sin(Date.now()*.003)>0)C.fillText('TAP / KEY TO RETRY',GW/2,GH/2+30);
+  C.restore();
+}
+
+function drawComplete(){
+  C.save();C.fillStyle='rgba(0,0,0,.4)';C.fillRect(0,0,GW,GH);
+  C.textAlign='center';C.fillStyle='#39ff14';C.shadowColor='#39ff14';C.shadowBlur=12;
+  C.font='18px "Press Start 2P"';C.fillText('LEVEL COMPLETE!',GW/2,GH/2-20);
+  C.shadowBlur=0;C.fillStyle='#fff';C.font='10px "Press Start 2P"';
+  C.fillText('SCORE: '+score,GW/2,GH/2+15);
+  if(levelIdx<LEVELS.length-1){
+    C.fillStyle='#0bf';C.font='8px "Press Start 2P"';
+    if(Math.sin(Date.now()*.003)>0)C.fillText('TAP / KEY FOR NEXT LEVEL',GW/2,GH/2+50);
+  }else{
+    C.fillStyle='#ffcc00';C.font='9px "Press Start 2P"';
+    C.fillText('ALL LEVELS COMPLETE!',GW/2,GH/2+50);
+  }
+  C.restore();
+}
+
+function drawGameOver(){
+  C.save();C.fillStyle='rgba(0,0,0,.6)';C.fillRect(0,0,GW,GH);
+  C.textAlign='center';C.fillStyle='#ff2244';C.shadowColor='#ff2244';C.shadowBlur=20;
+  C.font='24px "Press Start 2P"';C.fillText('GAME OVER',GW/2,GH/2-24);
+  C.shadowBlur=0;
+  C.fillStyle='#fff';C.font='10px "Press Start 2P"';C.fillText('SCORE: '+score,GW/2,GH/2+18);
+  C.fillStyle='#39ff14';C.font='8px "Press Start 2P"';
+  if(Math.sin(Date.now()*.003)>0)C.fillText('TAP / KEY FOR MENU',GW/2,GH/2+52);
+  C.restore();
+}
+
+function queueNeonRunnerScore(finalScore){
+  if(arcadeScoreSubmitted)return;
+  arcadeScoreSubmitted=true;
+  const s=Math.floor(Number(finalScore))||0;
+  setTimeout(()=>{
+    import('/scores.js').then(({submitScore})=>{
+      const raw=prompt('HIGH SCORE — Enter initials (max 12):','AAA');
+      const name=raw==null?'AAA':raw.trim()||'AAA';
+      submitScore({gameId:'neon-runner',name,score:s,limit:10});
+    }).catch(()=>{});
+  },0);
+}
+
+// ─── Loop ───
+let last=0;
+function loop(now){
+  if(now-last>=16){update();draw();last=now}
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
