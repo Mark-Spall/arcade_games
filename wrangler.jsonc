@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "arcade-games-api",
+  "main": "worker/src/index.js",
+  "compatibility_date": "2026-03-31",
+  "kv_namespaces": [
+    {
+      "binding": "SCORES",
+      "id": "86051d2aaab54b40a9a1603e35381770"
+    }
+  ],
+  "assets": {
+    "directory": ".",
+    "binding": "ASSETS"
+  }
+}

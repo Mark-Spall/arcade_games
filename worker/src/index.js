@@ -57,70 +57,86 @@ async function setBoard(env, gameId, entries) {
   await env.SCORES.put(keyFor(gameId), JSON.stringify(entries));
 }
 
+const cors = { "access-control-allow-origin": "*" };
+
+function corsOptions() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
+      "access-control-allow-headers": "content-type",
+      "access-control-max-age": "86400",
+    },
+  });
+}
+
+/** API routes only; returns null if this request should be served as a static asset. */
+async function handleApi(request, env) {
+  const url = new URL(request.url);
+  if (!url.pathname.startsWith("/api/")) return null;
+
+  if (request.method === "OPTIONS") return corsOptions();
+
+  if (url.pathname === "/api/ping") {
+    if (request.method !== "GET") {
+      return json({ ok: false, error: "Method not allowed" }, { status: 405, headers: cors });
+    }
+    return json({ ok: true }, { headers: cors });
+  }
+
+  if (url.pathname !== "/api/scores") {
+    return json({ ok: false, error: "Not found" }, { status: 404, headers: cors });
+  }
+
+  const gameId = normalizeGameId(url.searchParams.get("gameId"));
+  if (!gameId) return badRequest("Invalid or missing gameId");
+
+  if (request.method === "GET") {
+    const limit = clampLimit(url.searchParams.get("limit") ?? 10, 10);
+    const entries = (await getBoard(env, gameId)).slice(0, limit);
+    return json({ ok: true, gameId, entries }, { headers: cors });
+  }
+
+  if (request.method === "DELETE") {
+    await env.SCORES.delete(keyFor(gameId));
+    return json({ ok: true, gameId }, { headers: cors });
+  }
+
+  if (request.method === "POST") {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return badRequest("Invalid JSON body");
+    }
+
+    const name = normalizeName(body?.name);
+    const score = clampScore(body?.score);
+    if (score == null) return badRequest("Invalid score");
+    const limit = clampLimit(body?.limit ?? 10, 10);
+
+    const entries = await getBoard(env, gameId);
+    entries.push({ name, score, at: new Date().toISOString() });
+    entries.sort((a, b) => (b?.score ?? 0) - (a?.score ?? 0));
+    const trimmed = entries.slice(0, Math.max(1, Math.min(50, limit)));
+    await setBoard(env, gameId, trimmed);
+
+    return json({ ok: true, gameId, entries: trimmed }, { headers: cors });
+  }
+
+  return json({ ok: false, error: "Method not allowed" }, { status: 405, headers: cors });
+}
+
 export default {
   async fetch(request, env) {
-    const url = new URL(request.url);
+    const apiResponse = await handleApi(request, env);
+    if (apiResponse) return apiResponse;
 
-    // Minimal CORS (same-origin friendly; also works cross-origin if you need it later).
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        status: 204,
-        headers: {
-          "access-control-allow-origin": "*",
-          "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
-          "access-control-allow-headers": "content-type",
-          "access-control-max-age": "86400",
-        },
-      });
+    if (env.ASSETS) {
+      return env.ASSETS.fetch(request);
     }
 
-    const cors = { "access-control-allow-origin": "*" };
-
-    if (url.pathname === "/api/ping") {
-      return json({ ok: true }, { headers: cors });
-    }
-
-    if (url.pathname !== "/api/scores") {
-      return json({ ok: false, error: "Not found" }, { status: 404, headers: cors });
-    }
-
-    const gameId = normalizeGameId(url.searchParams.get("gameId"));
-    if (!gameId) return badRequest("Invalid or missing gameId");
-
-    if (request.method === "GET") {
-      const limit = clampLimit(url.searchParams.get("limit") ?? 10, 10);
-      const entries = (await getBoard(env, gameId)).slice(0, limit);
-      return json({ ok: true, gameId, entries }, { headers: cors });
-    }
-
-    if (request.method === "DELETE") {
-      await env.SCORES.delete(keyFor(gameId));
-      return json({ ok: true, gameId }, { headers: cors });
-    }
-
-    if (request.method === "POST") {
-      let body;
-      try {
-        body = await request.json();
-      } catch {
-        return badRequest("Invalid JSON body");
-      }
-
-      const name = normalizeName(body?.name);
-      const score = clampScore(body?.score);
-      if (score == null) return badRequest("Invalid score");
-      const limit = clampLimit(body?.limit ?? 10, 10);
-
-      const entries = await getBoard(env, gameId);
-      entries.push({ name, score, at: new Date().toISOString() });
-      entries.sort((a, b) => (b?.score ?? 0) - (a?.score ?? 0));
-      const trimmed = entries.slice(0, Math.max(1, Math.min(50, limit)));
-      await setBoard(env, gameId, trimmed);
-
-      return json({ ok: true, gameId, entries: trimmed }, { headers: cors });
-    }
-
-    return json({ ok: false, error: "Method not allowed" }, { status: 405, headers: cors });
+    return json({ ok: false, error: "Not found (deploy with static assets or use /api/*)" }, { status: 404, headers: cors });
   },
 };
-

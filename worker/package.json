@@ -1,0 +1,9 @@
+{
+  "name": "arcade-games-worker-legacy",
+  "private": true,
+  "description": "Use ../package.json — run npm run deploy from repo root.",
+  "scripts": {
+    "dev": "cd .. && wrangler dev",
+    "deploy": "cd .. && wrangler deploy"
+  }
+}
