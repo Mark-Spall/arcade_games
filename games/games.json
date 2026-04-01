@@ -96,5 +96,14 @@
     "description": "Neon battle royale in a shrinking safe circle: auto-fire, loot crates, last one standing.",
     "tags": ["Battle Royale", "Arcade", "Neon"],
     "hot": true
+  },
+  {
+    "id": "neon-starfall-command",
+    "title": "STARFALL COMMAND",
+    "href": "/games/neon-starfall-command.html",
+    "image": "/games/posters/neon-starfall-command.svg",
+    "description": "Dial orbital strikes with Arrow-key combos while you run for your life from the swarm.",
+    "tags": ["Shooter", "Arcade", "Combos", "Neon"],
+    "hot": true
   }
 ]

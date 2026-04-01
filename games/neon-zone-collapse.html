@@ -78,22 +78,25 @@ const TOTAL_PLAYERS = 10; // You + 9 bots
 let arcadeScoreSubmitted = false;
 let lastPlaced = null;
 let lastElims = null;
+let lastScore = null;
 
-function queueZoneCollapseScore({ placed }) {
+function queueZoneCollapseScore({ placed, elims, score }) {
   if (arcadeScoreSubmitted) return;
   arcadeScoreSubmitted = true;
 
   const p = Math.max(1, Math.floor(Number(placed) || TOTAL_PLAYERS));
-  const elims = Math.max(0, Math.min(TOTAL_PLAYERS - 1, (TOTAL_PLAYERS - p)));
+  const e = Math.max(0, Math.min(TOTAL_PLAYERS - 1, Math.floor(Number(elims) || 0)));
+  const s = Math.max(0, Math.floor(Number(score) || 0));
   lastPlaced = p;
-  lastElims = elims;
+  lastElims = e;
+  lastScore = s;
 
   setTimeout(() => {
     import('/scores.js')
       .then(({ submitScore }) => {
         const raw = prompt('HIGH SCORE — Enter initials (max 12):', 'AAA');
         const name = raw == null ? 'AAA' : raw.trim() || 'AAA';
-        submitScore({ gameId: GAME_ID, name, score: elims, limit: 10 });
+        submitScore({ gameId: GAME_ID, name, score: s, limit: 10 });
       })
       .catch(() => {});
   }, 0);
@@ -106,24 +109,35 @@ const C_PLY = '#00ffff';
 const C_BOT = '#ff00ff';
 const C_BUL = '#ffff00';
 const C_LOOT = '#39ff14';
+const C_STAR = 'rgba(200,220,255,0.12)';
+
+// --- Helpers ---
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+function rand(a, b) { return a + Math.random() * (b - a); }
 
 // --- Game State ---
 let state = 'TITLE'; // TITLE, PLAY, OVER, WIN
 let frames = 0;
 let zoneRadius = 350;
 
-let p = { x: 200, y: 250, hp: 100, maxHp: 100, speed: 2.5, reload: 0, power: 1 };
-let keys = { w:0, a:0, s:0, d:0, ArrowUp:0, ArrowLeft:0, ArrowDown:0, ArrowRight:0 };
+// Player is an Asteroids-style ship (rotate + thrust + inertia)
+let p = null;
+let score = 0;
+let elims = 0;
+let startedAt = 0;
+let keys = Object.create(null);
 let pointer = { active: false, x: 200, y: 250 };
 
 let bots = [];
 let bullets = [];
 let loot = [];
 let particles = [];
+let stars = [];
+let lootSpawnCd = 0;
 
 // --- Input Handling ---
-window.addEventListener('keydown', e => { if(keys[e.key] !== undefined) keys[e.key] = 1; });
-window.addEventListener('keyup', e => { if(keys[e.key] !== undefined) keys[e.key] = 0; });
+window.addEventListener('keydown', (e) => { keys[e.key] = 1; });
+window.addEventListener('keyup', (e) => { keys[e.key] = 0; });
 
 function handlePointer(e) {
   e.preventDefault();
@@ -145,14 +159,45 @@ cv.addEventListener('touchstart', handlePointer, {passive: false});
 cv.addEventListener('touchmove', handlePointer, {passive: false});
 window.addEventListener('touchend', handlePointer);
 
+function K(k) {
+  if (k === 'left') return keys['ArrowLeft'] || keys['a'];
+  if (k === 'right') return keys['ArrowRight'] || keys['d'];
+  if (k === 'thrust') return keys['ArrowUp'] || keys['w'];
+  if (k === 'fire') return keys[' '] || keys['z'] || keys['Z'];
+  return 0;
+}
+
 function initGame() {
-  p = { x: 200, y: 250, hp: 100, maxHp: 100, speed: 2.5, reload: 0, power: 1 };
+  score = 0;
+  elims = 0;
+  startedAt = performance.now();
+  p = {
+    x: 200, y: 250,
+    vx: 0, vy: 0,
+    ang: -Math.PI / 2,
+    hp: 100, maxHp: 100,
+    turn: 0.075,
+    thrust: 0.16,
+    drag: 0.992,
+    fireCd: 0,
+    invuln: 80,
+    weapon: 'single', // single, triple, pierce, rapid
+    weaponT: 0,
+    shield: 0, // hits remaining
+    boostT: 0,
+  };
   zoneRadius = 350;
   frames = 0;
   bots = []; bullets = []; loot = []; particles = [];
   arcadeScoreSubmitted = false;
   lastPlaced = null;
   lastElims = null;
+  lastScore = null;
+
+  // Stars for space vibe
+  stars = [];
+  for (let i = 0; i < 90; i++) stars.push({ x: Math.random() * cv.width, y: Math.random() * cv.height, r: Math.random() * 1.6 + 0.2, s: Math.random() * 0.35 + 0.05 });
+  lootSpawnCd = 120;
   
   // Spawn 9 Bots
   for(let i=0; i<9; i++) {
@@ -161,17 +206,55 @@ function initGame() {
     // Don't spawn too close to player
     if (Math.hypot(by - p.y, bx - p.x) < 100) bx += 100;
     bots.push({
-      x: bx, y: by, hp: 50, speed: 1.2 + Math.random()*0.8, reload: 0,
-      tx: bx, ty: by, state: 'WANDER' // WANDER, FLEE_ZONE, ATTACK
+      x: bx, y: by,
+      vx: rand(-0.6, 0.6), vy: rand(-0.6, 0.6),
+      ang: Math.random() * Math.PI * 2,
+      hp: 55,
+      turn: 0.05 + Math.random() * 0.03,
+      thrust: 0.10 + Math.random() * 0.07,
+      drag: 0.993,
+      reload: 30 + Math.random() * 40,
+      persona: Math.random() < 0.25 ? 'SNIPER' : (Math.random() < 0.55 ? 'HUNTER' : 'COWARD'),
+      state: 'WANDER',
+      tx: bx, ty: by,
     });
   }
   
   // Spawn initial loot
   for(let i=0; i<3; i++) {
-    loot.push({x: 50 + Math.random()*(cv.width-100), y: 50 + Math.random()*(cv.height-100)});
+    loot.push(spawnLoot());
   }
   
   state = 'PLAY';
+}
+
+function spawnLoot() {
+  const r = Math.random();
+  let type = 'REPAIR';
+  if (r < 0.18) type = 'SHIELD';
+  else if (r < 0.38) type = 'TRIPLE';
+  else if (r < 0.53) type = 'RAPID';
+  else if (r < 0.66) type = 'PIERCE';
+  else if (r < 0.78) type = 'BOOST';
+  else type = 'REPAIR';
+  return { x: 40 + Math.random()*(cv.width-80), y: 40 + Math.random()*(cv.height-80), type };
+}
+
+function applyLoot(l) {
+  if (!p) return;
+  if (l.type === 'REPAIR') {
+    p.hp = Math.min(p.maxHp, p.hp + 15);
+  } else if (l.type === 'SHIELD') {
+    p.shield = Math.min(3, p.shield + 1);
+  } else if (l.type === 'BOOST') {
+    p.boostT = Math.min(420, p.boostT + 240);
+  } else if (l.type === 'TRIPLE') {
+    p.weapon = 'triple'; p.weaponT = 520;
+  } else if (l.type === 'RAPID') {
+    p.weapon = 'rapid'; p.weaponT = 420;
+  } else if (l.type === 'PIERCE') {
+    p.weapon = 'pierce'; p.weaponT = 520;
+  }
 }
 
 function spawnParticle(x, y, color, count, speed=3) {
@@ -204,54 +287,114 @@ function update() {
   
   frames++;
 
-  // 1. Shrink Zone
-  if (frames % 2 === 0 && zoneRadius > 10) zoneRadius -= 0.15;
+  // Live score (arcade-y): kills are king, time matters, win bonus at the end.
+  const survivalSeconds = Math.floor((performance.now() - startedAt) / 1000);
+  score = elims * 1000 + survivalSeconds * 10;
 
-  // 2. Player Movement
-  let dx = 0, dy = 0;
-  if (pointer.active) {
-    let dist = Math.hypot(pointer.y - p.y, pointer.x - p.x);
-    if (dist > 5) { dx = (pointer.x - p.x) / dist; dy = (pointer.y - p.y) / dist; }
-  } else {
-    if (keys.w || keys.ArrowUp) dy -= 1;
-    if (keys.s || keys.ArrowDown) dy += 1;
-    if (keys.a || keys.ArrowLeft) dx -= 1;
-    if (keys.d || keys.ArrowRight) dx += 1;
-    let dist = Math.hypot(dx, dy);
-    if (dist > 0) { dx /= dist; dy /= dist; }
+  // 1. Shrink Zone
+  const t = frames / 60;
+  const shrink = zoneRadius > 95 ? 0.12 : (zoneRadius > 55 ? 0.18 : 0.28);
+  if (frames % 2 === 0 && zoneRadius > 18) zoneRadius -= shrink;
+
+  // 2. Player Ship (rotate/thrust/inertia)
+  if (p.invuln > 0) p.invuln--;
+  if (p.weaponT > 0) {
+    p.weaponT--;
+    if (p.weaponT <= 0) p.weapon = 'single';
   }
-  p.x += dx * p.speed; p.y += dy * p.speed;
-  p.x = Math.max(8, Math.min(cv.width-8, p.x));
-  p.y = Math.max(8, Math.min(cv.height-8, p.y));
+  if (p.boostT > 0) p.boostT--;
+
+  const turn = p.turn * (p.boostT > 0 ? 1.18 : 1.0);
+  const thrust = p.thrust * (p.boostT > 0 ? 1.25 : 1.0);
+
+  if (pointer.active) {
+    const aim = Math.atan2(pointer.y - p.y, pointer.x - p.x);
+    let da = ((aim - p.ang + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+    p.ang += clamp(da, -turn, turn);
+    p.vx += Math.cos(p.ang) * thrust;
+    p.vy += Math.sin(p.ang) * thrust;
+  } else {
+    if (K('left')) p.ang -= turn;
+    if (K('right')) p.ang += turn;
+    if (K('thrust')) {
+      p.vx += Math.cos(p.ang) * thrust;
+      p.vy += Math.sin(p.ang) * thrust;
+      if (frames % 6 === 0) spawnParticle(p.x - Math.cos(p.ang) * 10, p.y - Math.sin(p.ang) * 10, C_PLY, 1, 1.2);
+    }
+  }
+
+  p.vx *= p.drag;
+  p.vy *= p.drag;
+  p.x += p.vx;
+  p.y += p.vy;
+  p.x = clamp(p.x, 10, cv.width - 10);
+  p.y = clamp(p.y, 10, cv.height - 10);
 
   // Player Zone Damage
   let distToCenter = Math.hypot(p.y - cv.height/2, p.x - cv.width/2);
   if (distToCenter > zoneRadius) {
-    p.hp -= 0.5;
+    const zd = zoneRadius > 85 ? 0.55 : (zoneRadius > 55 ? 0.8 : 1.15);
+    p.hp -= zd;
     if (frames % 10 === 0) spawnParticle(p.x, p.y, C_ZONE, 1);
   }
 
-  // Player Auto-Fire
-  p.reload--;
-  if (p.reload <= 0 && bots.length > 0) {
-    let { target, dist } = getNearestTarget(p, bots);
-    if (target && dist < 200) {
-      let ang = Math.atan2(target.y - p.y, target.x - p.x);
-      bullets.push({x: p.x, y: p.y, vx: Math.cos(ang)*8, vy: Math.sin(ang)*8, isPlayer: true, dmg: 15 * p.power});
-      p.reload = Math.max(10, 30 - p.power * 5); // Shoots faster with more power
-      spawnParticle(p.x, p.y, C_BUL, 3, 1);
+  // Player Manual Fire (Space/Z)
+  p.fireCd--;
+  if (K('fire') && p.fireCd <= 0) {
+    const baseSpd = 8.5;
+    const spread = 0.22;
+    const dmgBase = 16;
+    const life = 80;
+    const shoot = (ang, spd, dmg, pierce) => {
+      bullets.push({
+        x: p.x + Math.cos(ang) * 12,
+        y: p.y + Math.sin(ang) * 12,
+        vx: Math.cos(ang) * spd + p.vx * 0.35,
+        vy: Math.sin(ang) * spd + p.vy * 0.35,
+        isPlayer: true,
+        dmg,
+        life,
+        pierce: !!pierce,
+      });
+    };
+
+    if (p.weapon === 'triple') {
+      shoot(p.ang, baseSpd, dmgBase * 0.85, false);
+      shoot(p.ang - spread, baseSpd, dmgBase * 0.75, false);
+      shoot(p.ang + spread, baseSpd, dmgBase * 0.75, false);
+      p.fireCd = 14;
+    } else if (p.weapon === 'rapid') {
+      shoot(p.ang + rand(-0.06, 0.06), baseSpd, dmgBase * 0.7, false);
+      p.fireCd = 7;
+    } else if (p.weapon === 'pierce') {
+      shoot(p.ang, baseSpd * 1.05, dmgBase * 0.9, true);
+      p.fireCd = 12;
+    } else {
+      shoot(p.ang, baseSpd, dmgBase, false);
+      p.fireCd = 11;
     }
+
+    spawnParticle(p.x + Math.cos(p.ang) * 10, p.y + Math.sin(p.ang) * 10, C_BUL, 4, 1.2);
   }
 
   // 3. Collect Loot
   for (let i = loot.length - 1; i >= 0; i--) {
     let l = loot[i];
     if (Math.hypot(p.y - l.y, p.x - l.x) < 15) {
-      p.power = Math.min(4, p.power + 1);
-      p.hp = Math.min(p.maxHp, p.hp + 25);
+      applyLoot(l);
       spawnParticle(l.x, l.y, C_LOOT, 20);
       loot.splice(i, 1);
+      // Respawn a new crate to keep the arena spicy
+      if (loot.length < 3 && Math.random() < 0.7) loot.push(spawnLoot());
     }
+  }
+
+  // Ambient crate spawns so the match doesn't go dry
+  lootSpawnCd--;
+  const lootTarget = zoneRadius > 90 ? 4 : (zoneRadius > 60 ? 3 : 2);
+  if (lootSpawnCd <= 0) {
+    if (loot.length < lootTarget) loot.push(spawnLoot());
+    lootSpawnCd = 150 + Math.random() * 120;
   }
 
   // 4. Update Bots
@@ -260,13 +403,13 @@ function update() {
     
     // AI Logic
     let distToCenterBot = Math.hypot(b.y - cv.height/2, b.x - cv.width/2);
-    let potentialTargets = [...bots.filter(ob => ob !== b), p];
+    const potentialTargets = [...bots.filter(ob => ob !== b), p];
     let { target, dist } = getNearestTarget(b, potentialTargets);
 
     if (distToCenterBot > zoneRadius - 20) {
       b.state = 'FLEE_ZONE';
-      b.tx = cv.width/2 + (Math.random()-0.5)*50;
-      b.ty = cv.height/2 + (Math.random()-0.5)*50;
+      b.tx = cv.width/2 + (Math.random()-0.5)*70;
+      b.ty = cv.height/2 + (Math.random()-0.5)*70;
     } else if (target && dist < 150) {
       b.state = 'ATTACK';
     } else {
@@ -277,28 +420,60 @@ function update() {
       }
     }
 
-    // Bot Movement
+    // Bot Movement (ship-like drift + thrust)
+    let desiredAng = b.ang;
     if (b.state === 'FLEE_ZONE' || b.state === 'WANDER') {
-      let ang = Math.atan2(b.ty - b.y, b.tx - b.x);
-      b.x += Math.cos(ang) * b.speed;
-      b.y += Math.sin(ang) * b.speed;
+      desiredAng = Math.atan2(b.ty - b.y, b.tx - b.x);
+    } else if (b.state === 'ATTACK' && target) {
+      const tx = target.x ?? target.x;
+      const ty = target.y ?? target.y;
+      // Hunters close; snipers orbit; cowards keep range
+      if (b.persona === 'SNIPER') {
+        desiredAng = Math.atan2(ty - b.y, tx - b.x) + (Math.random() < 0.5 ? 1 : -1) * 0.9;
+      } else if (b.persona === 'COWARD') {
+        desiredAng = Math.atan2(b.y - ty, b.x - tx);
+      } else {
+        desiredAng = Math.atan2(ty - b.y, tx - b.x);
+      }
     }
+    let da = ((desiredAng - b.ang + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+    b.ang += clamp(da, -b.turn, b.turn);
+    const wantsThrust = (b.state === 'FLEE_ZONE' || b.state === 'WANDER' || (b.state === 'ATTACK' && b.persona !== 'SNIPER')) ? 1 : (Math.random() < 0.25 ? 1 : 0);
+    if (wantsThrust) {
+      b.vx += Math.cos(b.ang) * b.thrust;
+      b.vy += Math.sin(b.ang) * b.thrust;
+    }
+    b.vx *= b.drag;
+    b.vy *= b.drag;
+    b.x += b.vx;
+    b.y += b.vy;
+    b.x = clamp(b.x, 10, cv.width - 10);
+    b.y = clamp(b.y, 10, cv.height - 10);
 
     // Bot Zone Damage
-    if (distToCenterBot > zoneRadius) b.hp -= 0.5;
+    if (distToCenterBot > zoneRadius) b.hp -= (zoneRadius > 85 ? 0.45 : (zoneRadius > 55 ? 0.65 : 0.95));
 
     // Bot Fire
     b.reload--;
-    if (b.state === 'ATTACK' && target && b.reload <= 0) {
-      let ang = Math.atan2(target.y - b.y, target.x - b.x);
-      bullets.push({x: b.x, y: b.y, vx: Math.cos(ang)*5, vy: Math.sin(ang)*5, isPlayer: false, dmg: 10, owner: b});
-      b.reload = 40 + Math.random()*30;
+    const fireDist = b.persona === 'SNIPER' ? 240 : 190;
+    if (b.state === 'ATTACK' && target && b.reload <= 0 && dist < fireDist) {
+      // Simple lead aim based on target velocity
+      const tvx = target.vx ?? 0;
+      const tvy = target.vy ?? 0;
+      const lead = b.persona === 'SNIPER' ? 18 : 10;
+      const aimX = target.x + tvx * lead;
+      const aimY = target.y + tvy * lead;
+      let ang = Math.atan2(aimY - b.y, aimX - b.x);
+      bullets.push({x: b.x + Math.cos(ang)*10, y: b.y + Math.sin(ang)*10, vx: Math.cos(ang)*5.6, vy: Math.sin(ang)*5.6, isPlayer: false, dmg: 11, owner: b, life: 120});
+      b.reload = (b.persona === 'HUNTER' ? 28 : 40) + Math.random()*28;
     }
 
     // Death
     if (b.hp <= 0) {
       spawnParticle(b.x, b.y, C_BOT, 30);
-      if (Math.random() < 0.3) loot.push({x: b.x, y: b.y}); // Drop loot
+      elims++;
+      // (score is computed from elims + time; bonus visuals handled separately)
+      if (Math.random() < 0.55) loot.push({x: b.x, y: b.y, type: Math.random() < 0.15 ? 'REPAIR' : (Math.random() < 0.5 ? 'TRIPLE' : 'SHIELD')}); // Drop loot
       bots.splice(i, 1);
     }
   }
@@ -307,6 +482,7 @@ function update() {
   for (let i = bullets.length - 1; i >= 0; i--) {
     let b = bullets[i];
     b.x += b.vx; b.y += b.vy;
+    if (b.life != null) { b.life--; if (b.life <= 0) { bullets.splice(i, 1); continue; } }
 
     // Out of bounds
     if (b.x < 0 || b.x > cv.width || b.y < 0 || b.y > cv.height) {
@@ -325,9 +501,14 @@ function update() {
       }
     } else {
       // Check player
-      if (Math.hypot(p.y - b.y, p.x - b.x) < 10) {
-        p.hp -= b.dmg;
-        spawnParticle(b.x, b.y, C_ZONE, 10);
+      if (Math.hypot(p.y - b.y, p.x - b.x) < 10 && p.invuln <= 0) {
+        if (p.shield > 0) {
+          p.shield--;
+          spawnParticle(b.x, b.y, C_LOOT, 12);
+        } else {
+          p.hp -= b.dmg;
+          spawnParticle(b.x, b.y, C_ZONE, 10);
+        }
         hit = true;
       }
       // Check other bots (friendly fire is ON in Battle Royale!)
@@ -341,7 +522,7 @@ function update() {
         }
       }
     }
-    if (hit) bullets.splice(i, 1);
+    if (hit && !b.pierce) bullets.splice(i, 1);
   }
 
   // 6. Particles
@@ -354,16 +535,37 @@ function update() {
   // 7. Win/Loss Conditions
   if (p.hp <= 0) {
     state = 'OVER';
-    queueZoneCollapseScore({ placed: bots.length + 1 });
+    const placed = bots.length + 1;
+    const aliveBonus = placed === 1 ? 500 : 0;
+    const timeBonus = survivalSeconds * 10;
+    const finalScore = elims * 1000 + aliveBonus + timeBonus;
+    queueZoneCollapseScore({ placed, elims, score: finalScore });
   } else if (bots.length === 0) {
     state = 'WIN';
-    queueZoneCollapseScore({ placed: 1 });
+    const placed = 1;
+    const aliveBonus = 500;
+    const timeBonus = survivalSeconds * 10;
+    const finalScore = elims * 1000 + aliveBonus + timeBonus;
+    score = Math.max(score, finalScore);
+    queueZoneCollapseScore({ placed, elims, score: finalScore });
   }
 }
 
 // --- Rendering ---
 function draw() {
   ctx.clearRect(0, 0, cv.width, cv.height);
+
+  // Space starfield
+  ctx.fillStyle = '#07000f';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.fillStyle = C_STAR;
+  for (const s of stars) {
+    ctx.globalAlpha = 0.35 + s.s;
+    ctx.fillRect(s.x, s.y, s.r, s.r);
+    s.y += s.s * 0.6;
+    if (s.y > cv.height) { s.y = -2; s.x = Math.random() * cv.width; }
+  }
+  ctx.globalAlpha = 1;
 
   // Draw Safe Zone
   ctx.fillStyle = C_SAFE;
@@ -394,6 +596,17 @@ function draw() {
     ctx.fillRect(l.x - 5, l.y - 5, 10, 10);
     ctx.fillStyle = '#fff';
     ctx.fillRect(l.x - 2, l.y - 2, 4, 4);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#0a0a1a';
+    ctx.font = '7px "Press Start 2P"';
+    const ch =
+      l.type === 'SHIELD' ? 'S' :
+      l.type === 'REPAIR' ? 'H' :
+      l.type === 'BOOST' ? 'T' :
+      l.type === 'TRIPLE' ? '3' :
+      l.type === 'RAPID' ? 'R' :
+      l.type === 'PIERCE' ? 'P' : '?';
+    ctx.fillText(ch, l.x - 3, l.y + 3);
   });
 
   // Draw Particles
@@ -408,12 +621,23 @@ function draw() {
   // Draw Bots
   bots.forEach(b => {
     ctx.shadowColor = C_BOT; ctx.shadowBlur = 10;
-    ctx.fillStyle = C_BOT;
-    ctx.beginPath(); ctx.arc(b.x, b.y, 8, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = C_BOT;
+    ctx.lineWidth = 2;
+    ctx.save();
+    ctx.translate(b.x, b.y);
+    ctx.rotate(b.ang);
+    ctx.beginPath();
+    ctx.moveTo(10, 0);
+    ctx.lineTo(-8, -6);
+    ctx.lineTo(-5, 0);
+    ctx.lineTo(-8, 6);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
     // Bot HP bar
     ctx.shadowBlur = 0;
     ctx.fillStyle = '#222'; ctx.fillRect(b.x - 10, b.y - 15, 20, 3);
-    ctx.fillStyle = C_ZONE; ctx.fillRect(b.x - 10, b.y - 15, 20 * (b.hp/50), 3);
+    ctx.fillStyle = C_ZONE; ctx.fillRect(b.x - 10, b.y - 15, 20 * (b.hp/55), 3);
   });
 
   // Draw Bullets
@@ -426,9 +650,36 @@ function draw() {
   // Draw Player
   if (state === 'PLAY' || state === 'WIN') {
     ctx.shadowColor = C_PLY; ctx.shadowBlur = 15;
-    ctx.fillStyle = C_PLY;
-    ctx.beginPath(); ctx.arc(p.x, p.y, 8, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = C_PLY;
+    ctx.lineWidth = 2;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.ang);
+    if (p.invuln > 0) ctx.globalAlpha = 0.55 + Math.sin(Date.now() * 0.03) * 0.35;
+    ctx.beginPath();
+    ctx.moveTo(12, 0);
+    ctx.lineTo(-9, -7);
+    ctx.lineTo(-6, 0);
+    ctx.lineTo(-9, 7);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    // Nose dot
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(8, -1, 2, 2);
+    ctx.restore();
+
+    // Shield pips
+    if (p.shield > 0) {
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = C_LOOT;
+      ctx.strokeStyle = C_LOOT;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 16, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
     
     // Player HP Bar UI (bottom)
     ctx.shadowBlur = 0;
@@ -440,7 +691,8 @@ function draw() {
     
     // Power level
     ctx.fillStyle = C_BUL;
-    ctx.fillText(`PWR: LVL ${p.power}`, cv.width - 90, cv.height - 11);
+    const wep = p.weapon === 'single' ? '1' : (p.weapon === 'triple' ? '3' : (p.weapon === 'rapid' ? 'R' : 'P'));
+    ctx.fillText(`WPN: ${wep}`, cv.width - 90, cv.height - 11);
   }
 
   // --- UI ---
@@ -450,6 +702,13 @@ function draw() {
   
   if (state === 'PLAY') {
     ctx.fillText(`ALIVE: ${bots.length + 1}`, 10, 20);
+    ctx.fillStyle = '#fff';
+    ctx.font = '8px "Press Start 2P"';
+    ctx.fillText(`ELIMS: ${elims}`, 10, 38);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = C_BUL;
+    ctx.fillText(String(score).padStart(6, '0'), cv.width - 10, 20);
+    ctx.textAlign = 'left';
     if (bots.length === 1) {
       ctx.fillStyle = C_LOOT;
       ctx.fillText(`1V1!`, cv.width/2 - 20, 20);
@@ -464,9 +723,9 @@ function draw() {
     ctx.shadowBlur = 0; ctx.font = '8px "Press Start 2P"';
     ctx.fillStyle = '#aaa';
     ctx.fillText('STAY IN THE SAFE CIRCLE', cv.width/2, cv.height/2 + 10);
-    ctx.fillText('AUTO-FIRE ENGAGED', cv.width/2, cv.height/2 + 25);
+    ctx.fillText('ROTATE + THRUST + FIRE', cv.width/2, cv.height/2 + 25);
     ctx.fillStyle = C_LOOT;
-    ctx.fillText('COLLECT CRATES TO UPGRADE', cv.width/2, cv.height/2 + 40);
+    ctx.fillText('CRATES: SHIELD / WEAPONS / REPAIR', cv.width/2, cv.height/2 + 40);
     
     if (Math.floor(Date.now() / 500) % 2 === 0) {
       ctx.fillStyle = '#fff'; ctx.font = '10px "Press Start 2P"';
@@ -483,7 +742,7 @@ function draw() {
     ctx.fillText(`PLACED: #${bots.length + 1}`, cv.width/2, cv.height/2 + 20);
     if (lastElims != null) {
       ctx.fillStyle = C_BUL; ctx.font = '10px "Press Start 2P"';
-      ctx.fillText(`ELIMS: ${lastElims}`, cv.width/2, cv.height/2 + 44);
+      ctx.fillText(`ELIMS: ${lastElims}   SCORE: ${lastScore ?? 0}`, cv.width/2, cv.height/2 + 44);
     }
     
     if (Math.floor(Date.now() / 500) % 2 === 0) {
@@ -501,7 +760,7 @@ function draw() {
     ctx.fillText('LAST MACHINE STANDING', cv.width/2, cv.height/2 + 20);
     if (lastElims != null) {
       ctx.fillStyle = C_BUL; ctx.font = '10px "Press Start 2P"';
-      ctx.fillText(`ELIMS: ${lastElims}`, cv.width/2, cv.height/2 + 44);
+      ctx.fillText(`ELIMS: ${lastElims}   SCORE: ${lastScore ?? 0}`, cv.width/2, cv.height/2 + 44);
     }
     
     if (Math.floor(Date.now() / 500) % 2 === 0) {
