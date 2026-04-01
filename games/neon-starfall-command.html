@@ -613,33 +613,51 @@ function draw() {
   // --- UI overlay ---
   ctx.shadowBlur = 0;
   ctx.fillStyle = '#fff';
-  ctx.font = '10px "Press Start 2P"';
+  const isMobileUi = window.matchMedia && window.matchMedia('(max-width: 599px)').matches;
+  const ui = {
+    top: isMobileUi ? 12 : 10,
+    small: isMobileUi ? 10 : 8,
+    uplink: isMobileUi ? 14 : 12,
+    line: isMobileUi ? 16 : 12,
+    padX: isMobileUi ? 10 : 10,
+  };
+  ctx.font = `${ui.top}px "Press Start 2P"`;
   
   if (state === 'PLAY') {
-    ctx.fillText(`SCORE: ${score}`, 10, 20);
+    // Backing strip for readability (esp. mobile + scanlines)
+    ctx.save();
+    ctx.globalAlpha = isMobileUi ? 0.68 : 0.52;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(6, 6, cv.width - 12, isMobileUi ? 150 : 120);
+    ctx.restore();
+
+    ctx.shadowColor = '#000';
+    ctx.shadowBlur = isMobileUi ? 6 : 3;
+    ctx.fillText(`SCORE: ${score}`, ui.padX, 20);
     ctx.fillStyle = '#ff0055';
     let hpStr = ""; for(let i=0;i<p.hp;i++) hpStr+="♥";
-    ctx.fillText(hpStr, cv.width - 50, 20);
+    ctx.fillText(hpStr, cv.width - (isMobileUi ? 86 : 50), 20);
 
     // Combos HUD
-    ctx.font = '8px "Press Start 2P"';
+    ctx.shadowBlur = isMobileUi ? 10 : 6;
+    ctx.font = `${ui.small}px "Press Start 2P"`;
     let startY = 40;
     COMBOS.forEach(c => {
       ctx.fillStyle = c.color;
       let seqStr = (c.seqArr?.length ? c.seqArr : c.seq.split(',')).map(d => SYM[d]).join(' ');
       ctx.fillText(`${c.name}: ${seqStr}`, 10, startY);
-      startY += 12;
+      startY += ui.line;
     });
 
     // Drops HUD (time-limited uplinks)
-    startY += 4;
+    startY += isMobileUi ? 8 : 4;
     ctx.fillStyle = 'rgba(233,230,255,0.85)';
     ctx.fillText('DROPS:', 10, startY);
-    startY += 12;
+    startY += ui.line;
     if (!drops.length) {
       ctx.fillStyle = 'rgba(233,230,255,0.45)';
       ctx.fillText('--', 10, startY);
-      startY += 12;
+      startY += ui.line;
     } else {
       for (let i = 0; i < Math.min(2, drops.length); i++) {
         const d = drops[i];
@@ -647,15 +665,22 @@ function draw() {
         const seqStr = (d.seqArr?.length ? d.seqArr : d.seq.split(',')).map(x => SYM[x]).join(' ');
         const bad = d.good ? '' : ' !';
         ctx.fillText(`${d.name}${bad}: ${seqStr}`, 10, startY);
-        startY += 12;
+        startY += ui.line;
       }
     }
 
     // Input Buffer HUD
     ctx.fillStyle = '#fff';
-    ctx.font = '12px "Press Start 2P"';
+    ctx.shadowBlur = isMobileUi ? 12 : 8;
+    ctx.font = `${ui.uplink}px "Press Start 2P"`;
     let inStr = inputSeq.map(d => SYM[d]).join(' ');
-    ctx.fillText(`UPLINK: [ ${inStr} ]`, 10, cv.height - 20);
+    // Backing strip for uplink line
+    ctx.save();
+    ctx.globalAlpha = isMobileUi ? 0.70 : 0.55;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(6, cv.height - (isMobileUi ? 44 : 36), cv.width - 12, isMobileUi ? 38 : 30);
+    ctx.restore();
+    ctx.fillText(`UPLINK: [ ${inStr} ]`, 10, cv.height - (isMobileUi ? 18 : 20));
 
   } else if (state === 'TITLE') {
     ctx.fillStyle = 'rgba(0,0,0,0.85)'; ctx.fillRect(0,0,cv.width,cv.height);

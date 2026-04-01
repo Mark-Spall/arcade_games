@@ -63,8 +63,9 @@
   #touch {
     display: none;
     position: fixed;
-    bottom: 8px; left: 0; right: 0;
-    padding: 0 12px;
+    left: 0; right: 0;
+    bottom: max(8px, env(safe-area-inset-bottom));
+    padding: 0 12px calc(6px + env(safe-area-inset-bottom));
     z-index: 100;
     justify-content: space-between;
     align-items: flex-end;
@@ -85,10 +86,17 @@
   .tb:active { background: rgba(255, 0, 60, 0.16); border-color: rgba(255, 0, 60, 0.4); }
   .tb.sm { width: 48px; height: 48px; font-size: 10px; }
 
+  /* Prefer showing controls based on input type, not only width (many phones report wide CSS px). */
+  @media (pointer: coarse), (hover: none) {
+    #touch { display: flex; }
+    body { padding-bottom: 86px; }
+  }
+
   @media (max-width: 560px) {
     #cab { border-width: 2px; padding: 3px; border-radius: 6px; }
     #crt { top: 3px; left: 3px; right: 3px; bottom: 3px; }
     #touch { display: flex; }
+    body { padding-bottom: 86px; }
   }
 </style>
 </head>
