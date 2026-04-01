@@ -81,6 +81,11 @@
     touch-action: manipulation;
   }
   .touch-btn:active { background: rgba(255, 0, 200, 0.5); }
+  .touch-btn:disabled {
+    opacity: 0.25;
+    filter: saturate(0.6);
+    pointer-events: none;
+  }
 
   @media (max-width: 520px) {
     #arcade-cabinet { border: 2px solid #333; padding: 4px; border-radius: 6px; }
@@ -97,11 +102,22 @@
 </div>
 
 <div id="touch-controls">
-  <div style="display:flex;gap:10px;">
-    <button class="touch-btn" id="btn-left">◀</button>
-    <button class="touch-btn" id="btn-right">▶</button>
+  <div style="display:flex;gap:10px;align-items:center;">
+    <div style="display:flex;gap:10px;">
+      <button class="touch-btn" id="btn-left">◀</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <button class="touch-btn" id="btn-up">▲</button>
+      <button class="touch-btn" id="btn-down">▼</button>
+    </div>
+    <div style="display:flex;gap:10px;">
+      <button class="touch-btn" id="btn-right">▶</button>
+    </div>
   </div>
-  <button class="touch-btn" id="btn-fire">●</button>
+  <div style="display:flex;gap:10px;align-items:center;">
+    <button class="touch-btn" id="btn-bomb">B</button>
+    <button class="touch-btn" id="btn-fire">●</button>
+  </div>
 </div>
 
 <script>
@@ -165,9 +181,9 @@ let arcadeScoreSubmitted = false;
 let screenShake = 0, slowmo = 0, flashWhite = 0;
 
 // ─── Progression / Drops ───
-const UPGRADE_START_LEVEL = 5; // permanent firepower begins appearing
-const SHIELD_START_LEVEL  = 6; // shields begin appearing
-const BOMB_START_LEVEL    = 7; // bombs begin appearing
+const UPGRADE_START_LEVEL = 8;  // permanent firepower begins appearing
+const SHIELD_START_LEVEL  = 10; // shields begin appearing
+const BOMB_START_LEVEL    = 12; // bombs begin appearing
 let levelUpgradeDropAvailable = false; // guaranteed upgrade once per level (while you still need it)
 
 // ─── Canyon Terrain ───
@@ -323,7 +339,7 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => { keys[e.key] = false; });
 
-let touchLeft = false, touchRight = false, touchFire = false;
+let touchLeft = false, touchRight = false, touchUp = false, touchDown = false, touchFire = false, touchBomb = false;
 function addTouch(id, setter) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -333,7 +349,10 @@ function addTouch(id, setter) {
 }
 addTouch('btn-left', v => touchLeft = v);
 addTouch('btn-right', v => touchRight = v);
+addTouch('btn-up', v => touchUp = v);
+addTouch('btn-down', v => touchDown = v);
 addTouch('btn-fire', v => touchFire = v);
+addTouch('btn-bomb', v => touchBomb = v);
 
 canvas.addEventListener('click', () => { ensureAudio(); if (state === 'title' || state === 'gameover') startGame(); });
 canvas.addEventListener('touchstart', () => ensureAudio());
@@ -503,6 +522,7 @@ function startGame() {
   bullets = []; enemyBullets = []; enemies = []; particles = []; powerups = [];
   initCanyon();
   levelUpgradeDropAvailable = false;
+  syncTouchButtons();
   spawnWave();
 }
 
@@ -578,6 +598,11 @@ function detonateBomb() {
   }
 }
 
+function syncTouchButtons() {
+  const bombBtn = document.getElementById('btn-bomb');
+  if (bombBtn) bombBtn.disabled = !(player.bombs > 0);
+}
+
 // ─── Update ───
 function update() {
   const dt = slowmo > 0 ? 0.5 : 1;
@@ -587,11 +612,13 @@ function update() {
 
   if (state !== 'playing') return;
 
+  syncTouchButtons();
+
   levelTimer++;
   updateCanyon(dt);
 
   // Bomb (B) — later stage bailout
-  if ((justPressed['b'] || justPressed['B']) && player.bombs > 0) {
+  if ((justPressed['b'] || justPressed['B'] || touchBomb) && player.bombs > 0) {
     detonateBomb();
   }
 
@@ -600,6 +627,14 @@ function update() {
   if (keys['ArrowLeft'] || keys['a'] || touchLeft) moving -= 1;
   if (keys['ArrowRight'] || keys['d'] || touchRight) moving += 1;
   player.x += moving * player.speed * dt;
+
+  // Vertical movement (W/S) — small forward/back within canyon
+  let vMove = 0;
+  if (keys['ArrowUp'] || keys['w'] || touchUp) vMove -= 1;
+  if (keys['ArrowDown'] || keys['s'] || touchDown) vMove += 1;
+  player.y += vMove * (player.speed * 0.75) * dt;
+  // Keep sprite + flame comfortably on-screen
+  player.y = Math.max(140, Math.min(590, player.y));
 
   // Constrain to canyon
   const bounds = getCanyonBounds(player.y);
@@ -844,6 +879,7 @@ function update() {
 
   // clear "just pressed" flags
   for (const k in justPressed) delete justPressed[k];
+  touchBomb = false;
 }
 
 function playerHit() {
@@ -1062,11 +1098,12 @@ function drawTitle() {
   ctx.font = '8px "Press Start 2P"';
   ctx.fillText('ARROWS / A,D = MOVE', 240, 400);
   ctx.fillText('SPACE / Z = FIRE', 240, 425);
-  ctx.fillText('B = BOMB (IF HELD)', 240, 450);
+  ctx.fillText('W/S = THRUST', 240, 450);
+  ctx.fillText('B = BOMB (IF HELD)', 240, 475);
 
   ctx.fillStyle = '#777';
   ctx.font = '7px "Press Start 2P"';
-  ctx.fillText('WATCH THE CANYON WALLS!', 240, 475);
+  ctx.fillText('WATCH THE CANYON WALLS!', 240, 505);
 
   drawPixelSprite(222, 500, SHIP_SPRITE, 4, SHIP_COLORS);
 
