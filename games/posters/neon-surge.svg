@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 240" width="400" height="240">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="45%" r="75%">
+      <stop offset="0%" stop-color="#18002a"/>
+      <stop offset="55%" stop-color="#0b001a"/>
+      <stop offset="100%" stop-color="#050012"/>
+    </radialGradient>
+    <linearGradient id="neon" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f0ff"/>
+      <stop offset="45%" stop-color="#ff00cc"/>
+      <stop offset="100%" stop-color="#39ff14"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="400" height="240" fill="url(#bg)"/>
+
+  <!-- subtle grid -->
+  <g stroke="#220044" stroke-width="1" opacity="0.45">
+    <path d="M0 60H400M0 120H400M0 180H400"/>
+    <path d="M80 0V240M160 0V240M240 0V240M320 0V240"/>
+  </g>
+
+  <!-- surge ring -->
+  <circle cx="200" cy="128" r="66" fill="none" stroke="url(#neon)" stroke-width="5" opacity="0.55"/>
+  <circle cx="200" cy="128" r="44" fill="none" stroke="#00f0ff" stroke-width="2" opacity="0.22"/>
+
+  <!-- player core -->
+  <g opacity="0.95">
+    <path d="M200 112 L214 128 L200 144 L186 128 Z" fill="#ff00cc"/>
+    <circle cx="200" cy="128" r="7" fill="#00f0ff"/>
+  </g>
+
+  <!-- bullets -->
+  <g fill="#39ff14" opacity="0.85">
+    <rect x="246" y="125" width="10" height="3" rx="1"/>
+    <rect x="142" y="125" width="10" height="3" rx="1"/>
+    <rect x="197" y="74" width="3" height="10" rx="1"/>
+    <rect x="197" y="172" width="3" height="10" rx="1"/>
+  </g>
+
+  <!-- enemies -->
+  <g fill="#ffaa00" opacity="0.85">
+    <circle cx="110" cy="96" r="10"/>
+    <circle cx="310" cy="160" r="12"/>
+    <circle cx="295" cy="88" r="8"/>
+  </g>
+</svg>

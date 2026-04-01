@@ -71,5 +71,13 @@
     "image": "/games/posters/neon-extractor.svg",
     "description": "Rescue pods, blast drones, survive the neon void.",
     "tags": ["Shooter", "Arcade", "Neon"]
+  },
+  {
+    "id": "neon-surge",
+    "title": "Neon Surge",
+    "href": "/games/neon-surge.html",
+    "image": "/games/posters/neon-surge.svg",
+    "description": "Neon auto-shooter survival: power up, shield up, ride the waves.",
+    "tags": ["Shooter", "Survivor", "Neon"]
   }
 ]
