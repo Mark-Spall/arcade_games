@@ -15,6 +15,15 @@ function escapeHtml(s) {
     .replaceAll("'", "&#039;");
 }
 
+/** Safe for unquoted HTML attribute values (e.g. style="background-image:url(...)"). */
+function escapeCssUrlArg(s) {
+  return String(s ?? "")
+    .replaceAll("\\", "\\\\")
+    .replaceAll(")", "\\)")
+    .replaceAll("(", "\\(")
+    .replaceAll("'", "\\'");
+}
+
 function fmtWhen(iso) {
   try {
     const d = new Date(iso);
@@ -38,13 +47,32 @@ function renderGames(games) {
     a.href = g.href;
     a.setAttribute("aria-label", `Play ${g.title}`);
 
+    const imgUrl = g.image?.trim();
+    let appendTarget = a;
+    if (imgUrl) {
+      a.classList.add("has-card-bg");
+      const bg = document.createElement("span");
+      bg.className = "card-bg";
+      bg.setAttribute("aria-hidden", "true");
+      bg.style.backgroundImage = `url("${escapeCssUrlArg(imgUrl)}")`;
+      a.appendChild(bg);
+      const overlay = document.createElement("span");
+      overlay.className = "card-bg-overlay";
+      overlay.setAttribute("aria-hidden", "true");
+      a.appendChild(overlay);
+      const inner = document.createElement("div");
+      inner.className = "card-inner";
+      a.appendChild(inner);
+      appendTarget = inner;
+    }
+
     const h3 = document.createElement("h3");
     h3.textContent = g.title;
-    a.appendChild(h3);
+    appendTarget.appendChild(h3);
 
     const p = document.createElement("p");
     p.textContent = g.description ?? "";
-    a.appendChild(p);
+    appendTarget.appendChild(p);
 
     const meta = document.createElement("div");
     meta.className = "meta";
@@ -63,7 +91,7 @@ function renderGames(games) {
       meta.appendChild(span);
     }
 
-    a.appendChild(meta);
+    appendTarget.appendChild(meta);
     grid.appendChild(a);
   }
 }

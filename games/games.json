@@ -3,6 +3,7 @@
     "id": "neon-rocks",
     "title": "Neon Rocks",
     "href": "/games/neon-rocks.html",
+    "image": "/games/posters/neon-rocks.svg",
     "description": "Asteroids with neon glow: blast rocks, dodge UFOs, rescue spacemen.",
     "tags": ["Asteroids", "Arcade", "Neon"],
     "hot": true
@@ -11,6 +12,7 @@
     "id": "neon-blaster",
     "title": "Neon Blaster",
     "href": "/games/neon-blaster.html",
+    "image": "/games/posters/neon-blaster.svg",
     "description": "Canyon shooter with neon glow and dive-bombing enemies.",
     "tags": ["Shooter", "Arcade", "Neon"]
   },
@@ -18,6 +20,7 @@
     "id": "void-defender",
     "title": "Void Defender",
     "href": "/games/void-defender.html",
+    "image": "/games/posters/void-defender.svg",
     "description": "Defender-style rescue mission: fly, bomb, save humans.",
     "tags": ["Defender", "Arcade", "Rescue"]
   },
@@ -25,6 +28,7 @@
     "id": "neon-break",
     "title": "Neon Break",
     "href": "/games/neon-break.html",
+    "image": "/games/posters/neon-break.svg",
     "description": "Neon brick breaker with power-ups and bosses.",
     "tags": ["Breakout", "Arcade", "Neon"]
   },
@@ -32,6 +36,7 @@
     "id": "neon-hop",
     "title": "Neon Hop",
     "href": "/games/neon-hop.html",
+    "image": "/games/posters/neon-hop.svg",
     "description": "Cross traffic and the river in glowing lanes.",
     "tags": ["Frogger", "Arcade", "Neon"]
   }
