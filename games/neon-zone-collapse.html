@@ -220,9 +220,13 @@ const SFX = {
 };
 
 // --- Game State ---
-let state = 'TITLE'; // TITLE, PLAY, OVER, WIN
+let state = 'TITLE'; // TITLE, PLAY, ROUND_CLEAR, OVER
 let frames = 0;
 let zoneRadius = 350;
+let level = 1;
+let bonusScore = 0;
+let sectorClearSince = 0;
+let roundClearTimer = 0;
 
 // Player is an Asteroids-style ship (rotate + thrust + inertia)
 let p = null;
@@ -238,6 +242,19 @@ let loot = [];
 let particles = [];
 let stars = [];
 let lootSpawnCd = 0;
+let safeStreak = 0;
+let stormT = 0;
+let sectorMod = { id: 'NONE', label: '', shrink: 1, zMul: 1 };
+let pendingSectorMod = null;
+
+function pickSectorMod(lv) {
+  const roll = Math.random();
+  if (roll < 0.2) return { id: 'FAST', label: 'FAST SHRINK', shrink: 1.14, zMul: 1 };
+  if (roll < 0.36) return { id: 'STORM', label: 'FIERCE STORM', shrink: 1, zMul: 1.22 };
+  if (roll < 0.5) return { id: 'WIDE', label: 'WIDE RING', shrink: 0.92, zMul: 0.92 };
+  if (roll < 0.62) return { id: 'CALM', label: 'CALM SECTOR', shrink: 0.88, zMul: 0.88 };
+  return { id: 'NONE', label: '', shrink: 1, zMul: 1 };
+}
 
 // --- Input Handling ---
 window.addEventListener('keydown', (e) => { keys[e.key] = 1; });
@@ -256,7 +273,14 @@ addT('t-thrust', 'thrust'); addT('t-fire', 'fire');
 
 function handlePointer(e) {
   e.preventDefault();
-  if (state !== 'PLAY' && (e.type === 'mousedown' || e.type === 'touchstart')) {
+  if ((e.type === 'mousedown' || e.type === 'touchstart') && state === 'ROUND_CLEAR') {
+    if (performance.now() - sectorClearSince > 350) {
+      ea();
+      startNextLevel();
+    }
+    return;
+  }
+  if (state !== 'PLAY' && state !== 'ROUND_CLEAR' && (e.type === 'mousedown' || e.type === 'touchstart')) {
     ea();
     initGame();
     return;
@@ -287,6 +311,8 @@ function K(k) {
 function initGame() {
   score = 0;
   elims = 0;
+  bonusScore = 0;
+  level = 1;
   startedAt = performance.now();
   p = {
     x: 200, y: 250,
@@ -303,45 +329,127 @@ function initGame() {
     shield: 0, // hits remaining
     boostT: 0,
   };
-  zoneRadius = 350;
   frames = 0;
   bots = []; bullets = []; loot = []; particles = [];
   arcadeScoreSubmitted = false;
   lastPlaced = null;
   lastElims = null;
   lastScore = null;
+  roundClearTimer = 0;
+  safeStreak = 0;
+  stormT = 0;
+  pendingSectorMod = null;
+  sectorMod = pickSectorMod(1);
+  zoneRadius = 350;
+  if (sectorMod.id === 'WIDE') zoneRadius = clamp(350 + 28, 230, 368);
 
   // Stars for space vibe
   stars = [];
   for (let i = 0; i < 90; i++) stars.push({ x: Math.random() * cv.width, y: Math.random() * cv.height, r: Math.random() * 1.6 + 0.2, s: Math.random() * 0.35 + 0.05 });
   lootSpawnCd = 120;
-  
-  // Spawn 9 Bots
-  for(let i=0; i<9; i++) {
-    let bx = Math.random() * cv.width;
-    let by = Math.random() * cv.height;
-    // Don't spawn too close to player
-    if (Math.hypot(by - p.y, bx - p.x) < 100) bx += 100;
-    bots.push({
-      x: bx, y: by,
-      vx: rand(-0.6, 0.6), vy: rand(-0.6, 0.6),
-      ang: Math.random() * Math.PI * 2,
-      hp: 55,
-      turn: 0.05 + Math.random() * 0.03,
-      thrust: 0.10 + Math.random() * 0.07,
-      drag: 0.993,
-      reload: 30 + Math.random() * 40,
-      persona: Math.random() < 0.25 ? 'SNIPER' : (Math.random() < 0.55 ? 'HUNTER' : 'COWARD'),
-      state: 'WANDER',
-      tx: bx, ty: by,
-    });
-  }
-  
+
+  spawnBotsForLevel();
+
   // Spawn initial loot
   for(let i=0; i<3; i++) {
     loot.push(spawnLoot());
   }
+  if (Math.random() < 0.45) loot.push(spawnRiskLoot());
   
+  state = 'PLAY';
+  SFX.startGame();
+}
+
+function botCountForLevel(lv) {
+  if (lv > 0 && lv % 5 === 0) return 1;
+  return Math.min(12, 9 + Math.floor((lv - 1) / 2));
+}
+
+function botHpForLevel(lv) {
+  return Math.min(108, 55 + (lv - 1) * 9);
+}
+
+function spawnBotsForLevel() {
+  const n = botCountForLevel(level);
+  const hp0 = botHpForLevel(level);
+  const thrustBoost = 1 + (level - 1) * 0.035;
+  const turnBoost = 1 + (level - 1) * 0.025;
+  const sniperBias = sectorMod.id === 'STORM' ? 0.42 : 0.25;
+
+  if (level > 0 && level % 5 === 0) {
+    let bx = cv.width * 0.5 + rand(-40, 40);
+    let by = cv.height * 0.35;
+    const bossHp = Math.min(520, hp0 * 9 + level * 22);
+    bots.push({
+      x: bx, y: by,
+      vx: 0, vy: 0,
+      ang: Math.PI / 2,
+      hp: bossHp,
+      maxHp: bossHp,
+      turn: 0.042 * turnBoost,
+      thrust: 0.08 * thrustBoost,
+      drag: 0.994,
+      reload: 22,
+      persona: 'HUNTER',
+      state: 'WANDER',
+      tx: bx, ty: by,
+      boss: true,
+      hitR: 18,
+    });
+    return;
+  }
+
+  for (let i = 0; i < n; i++) {
+    let bx = Math.random() * cv.width;
+    let by = Math.random() * cv.height;
+    if (Math.hypot(by - p.y, bx - p.x) < 100) bx += 100;
+    const elite = i === 0;
+    const hp1 = elite ? Math.floor(hp0 * 1.75) : hp0;
+    bots.push({
+      x: bx, y: by,
+      vx: rand(-0.6, 0.6), vy: rand(-0.6, 0.6),
+      ang: Math.random() * Math.PI * 2,
+      hp: hp1,
+      maxHp: hp1,
+      turn: (0.05 + Math.random() * 0.03) * turnBoost * (elite ? 0.95 : 1),
+      thrust: (0.10 + Math.random() * 0.07) * thrustBoost * (elite ? 1.05 : 1),
+      drag: 0.993,
+      reload: Math.max(18, 30 + Math.random() * 40 - (level - 1) * 2),
+      persona: Math.random() < sniperBias ? 'SNIPER' : (Math.random() < 0.55 ? 'HUNTER' : 'COWARD'),
+      state: 'WANDER',
+      tx: bx, ty: by,
+      elite: !!elite,
+      hitR: elite ? 14 : 12,
+    });
+  }
+}
+
+function startNextLevel() {
+  if (state !== 'ROUND_CLEAR' || !p) return;
+  level++;
+  bots = [];
+  bullets = [];
+  loot = [];
+  particles = [];
+  sectorMod = pendingSectorMod || pickSectorMod(level);
+  pendingSectorMod = null;
+  stormT = 0;
+  safeStreak = 0;
+  let z0 = clamp(350 - (level - 1) * 10, 220, 350);
+  if (sectorMod.id === 'WIDE') z0 = clamp(z0 + 28, 230, 368);
+  zoneRadius = z0;
+  frames = 0;
+  lootSpawnCd = 120;
+  p.x = cv.width / 2;
+  p.y = cv.height / 2;
+  p.vx = 0;
+  p.vy = 0;
+  p.ang = -Math.PI / 2;
+  p.invuln = 110;
+  p.hp = Math.min(p.maxHp, p.hp + 20 + level * 5);
+  spawnBotsForLevel();
+  for (let i = 0; i < 3; i++) loot.push(spawnLoot());
+  if (Math.random() < 0.5) loot.push(spawnRiskLoot());
   state = 'PLAY';
   SFX.startGame();
 }
@@ -356,6 +464,20 @@ function spawnLoot() {
   else if (r < 0.78) type = 'BOOST';
   else type = 'REPAIR';
   return { x: 40 + Math.random()*(cv.width-80), y: 40 + Math.random()*(cv.height-80), type };
+}
+
+function spawnRiskLoot() {
+  const ang = Math.random() * Math.PI * 2;
+  const r = Math.max(zoneRadius, 80) * (1.06 + Math.random() * 0.14);
+  const cx = cv.width / 2;
+  const cy = cv.height / 2;
+  let x = cx + Math.cos(ang) * r;
+  let y = cy + Math.sin(ang) * r;
+  x = clamp(x, 24, cv.width - 24);
+  y = clamp(y, 24, cv.height - 24);
+  const types = ['SHIELD', 'REPAIR', 'TRIPLE', 'PIERCE'];
+  const type = types[Math.floor(Math.random() * types.length)];
+  return { x, y, type, risk: true };
 }
 
 function applyLoot(l) {
@@ -398,20 +520,29 @@ function getNearestTarget(entity, targets) {
 
 // --- Game Loop ---
 function update() {
+  if (state === 'ROUND_CLEAR') {
+    roundClearTimer--;
+    if (roundClearTimer <= 0) startNextLevel();
+    else if (roundClearTimer < 125 && (K('thrust') || K('fire'))) startNextLevel();
+    return;
+  }
   if (state !== 'PLAY') {
-    if ((keys.w || keys.ArrowUp) && (state === 'OVER' || state === 'WIN')) initGame();
+    if ((keys.w || keys.ArrowUp) && state === 'OVER') initGame();
     return;
   }
   
   frames++;
 
-  // Live score (arcade-y): kills are king, time matters, win bonus at the end.
+  // Live score (arcade-y): kills, time, sector bonuses.
   const survivalSeconds = Math.floor((performance.now() - startedAt) / 1000);
-  score = elims * 1000 + survivalSeconds * 10;
+  score = elims * 1000 + survivalSeconds * 10 + bonusScore + (level - 1) * 400;
 
-  // 1. Shrink Zone
-  const t = frames / 60;
-  const shrink = zoneRadius > 95 ? 0.12 : (zoneRadius > 55 ? 0.18 : 0.28);
+  // 1. Shrink Zone (+ global storm surges)
+  if (stormT <= 0 && frames > 420 && frames % 780 === 0 && Math.random() < 0.4) stormT = 150;
+  if (stormT > 0) stormT--;
+  const stormShrink = stormT > 0 ? 1.34 : 1;
+  const shrinkMul = (1 + (level - 1) * 0.042) * stormShrink * sectorMod.shrink;
+  const shrink = (zoneRadius > 95 ? 0.12 : (zoneRadius > 55 ? 0.18 : 0.28)) * shrinkMul;
   if (frames % 2 === 0 && zoneRadius > 18) zoneRadius -= shrink;
 
   // 2. Player Ship (rotate/thrust/inertia)
@@ -451,12 +582,31 @@ function update() {
   p.x = clamp(p.x, 10, cv.width - 10);
   p.y = clamp(p.y, 10, cv.height - 10);
 
-  // Player Zone Damage
+  // Player zone damage (shield = full immunity to storm while charges remain)
   let distToCenter = Math.hypot(p.y - cv.height/2, p.x - cv.width/2);
+  const inSafe = distToCenter <= zoneRadius;
+  const safeForStreak = inSafe || (distToCenter > zoneRadius && p.shield > 0);
+  if (safeForStreak) {
+    safeStreak++;
+    if (safeStreak > 0 && safeStreak % 240 === 0) bonusScore += 70;
+  } else {
+    safeStreak = 0;
+  }
+
   if (distToCenter > zoneRadius) {
-    const zd = zoneRadius > 85 ? 0.55 : (zoneRadius > 55 ? 0.8 : 1.15);
-    p.hp -= zd;
-    if (frames % 10 === 0) spawnParticle(p.x, p.y, C_ZONE, 1);
+    if (p.shield <= 0) {
+      const lvZ = 1 + (level - 1) * 0.068;
+      const stormZ = stormT > 0 ? 1.28 : 1;
+      let zd = zoneRadius > 85 ? 0.5 : (zoneRadius > 55 ? 0.75 : 1.12);
+      if (zoneRadius <= 40) zd += 0.35;
+      const over = distToCenter - zoneRadius;
+      zd *= (1 + Math.min(2.2, over / 100) * 0.38) * lvZ * stormZ * sectorMod.zMul;
+      p.hp -= zd;
+      if (frames % 10 === 0) spawnParticle(p.x, p.y, C_ZONE, 1);
+      if (frames % 14 === 0) SFX.zoneBurn();
+    } else {
+      if (frames % 18 === 0) spawnParticle(p.x, p.y, C_LOOT, 1, 1.5);
+    }
   }
 
   // Player Manual Fire (Space/Z)
@@ -516,7 +666,10 @@ function update() {
   lootSpawnCd--;
   const lootTarget = zoneRadius > 90 ? 4 : (zoneRadius > 60 ? 3 : 2);
   if (lootSpawnCd <= 0) {
-    if (loot.length < lootTarget) loot.push(spawnLoot());
+    if (loot.length < lootTarget) {
+      loot.push(spawnLoot());
+      if (Math.random() < 0.18 && zoneRadius < 200) loot.push(spawnRiskLoot());
+    }
     lootSpawnCd = 150 + Math.random() * 120;
   }
 
@@ -574,7 +727,14 @@ function update() {
     b.y = clamp(b.y, 10, cv.height - 10);
 
     // Bot Zone Damage
-    if (distToCenterBot > zoneRadius) b.hp -= (zoneRadius > 85 ? 0.45 : (zoneRadius > 55 ? 0.65 : 0.95));
+    if (distToCenterBot > zoneRadius) {
+      const lvBz = 1 + (level - 1) * 0.05;
+      const stormBz = stormT > 0 ? 1.22 : 1;
+      let bz = (zoneRadius > 85 ? 0.45 : (zoneRadius > 55 ? 0.65 : 0.95)) * lvBz * stormBz * sectorMod.zMul;
+      const overB = distToCenterBot - zoneRadius;
+      bz *= 1 + Math.min(2, overB / 110) * 0.32;
+      b.hp -= bz;
+    }
 
     // Bot Fire
     b.reload--;
@@ -587,7 +747,9 @@ function update() {
       const aimX = target.x + tvx * lead;
       const aimY = target.y + tvy * lead;
       let ang = Math.atan2(aimY - b.y, aimX - b.x);
-      bullets.push({x: b.x + Math.cos(ang)*10, y: b.y + Math.sin(ang)*10, vx: Math.cos(ang)*5.6, vy: Math.sin(ang)*5.6, isPlayer: false, dmg: 11, owner: b, life: 120});
+      const bdmg = Math.min(16, 11 + Math.floor((level - 1) * 0.45));
+      const bspd = Math.min(6.8, 5.6 + (level - 1) * 0.06);
+      bullets.push({x: b.x + Math.cos(ang)*10, y: b.y + Math.sin(ang)*10, vx: Math.cos(ang)*bspd, vy: Math.sin(ang)*bspd, isPlayer: false, dmg: bdmg, owner: b, life: 120});
       b.reload = (b.persona === 'HUNTER' ? 28 : 40) + Math.random()*28;
       SFX.enemyShoot();
     }
@@ -597,8 +759,12 @@ function update() {
       spawnParticle(b.x, b.y, C_BOT, 30);
       SFX.explode();
       elims++;
-      // (score is computed from elims + time; bonus visuals handled separately)
-      if (Math.random() < 0.55) loot.push({x: b.x, y: b.y, type: Math.random() < 0.15 ? 'REPAIR' : (Math.random() < 0.5 ? 'TRIPLE' : 'SHIELD')}); // Drop loot
+      if (b.elite || b.boss) {
+        loot.push({ x: b.x, y: b.y, type: b.boss ? 'SHIELD' : 'TRIPLE' });
+        loot.push({ x: b.x + 8, y: b.y, type: 'REPAIR' });
+      } else if (Math.random() < 0.55) {
+        loot.push({x: b.x, y: b.y, type: Math.random() < 0.15 ? 'REPAIR' : (Math.random() < 0.5 ? 'TRIPLE' : 'SHIELD')});
+      }
       bots.splice(i, 1);
     }
   }
@@ -618,7 +784,8 @@ function update() {
     if (b.isPlayer) {
       // Check bots
       for (let j = bots.length - 1; j >= 0; j--) {
-        if (Math.hypot(bots[j].y - b.y, bots[j].x - b.x) < 12) {
+        const br = bots[j].hitR || 12;
+        if (Math.hypot(bots[j].y - b.y, bots[j].x - b.x) < br) {
           bots[j].hp -= b.dmg;
           spawnParticle(b.x, b.y, C_BUL, 5);
           SFX.hitBot();
@@ -642,7 +809,8 @@ function update() {
       // Check other bots (friendly fire is ON in Battle Royale!)
       if (!hit) {
         for (let j = bots.length - 1; j >= 0; j--) {
-          if (bots[j] !== b.owner && Math.hypot(bots[j].y - b.y, bots[j].x - b.x) < 12) {
+          const br2 = bots[j].hitR || 12;
+          if (bots[j] !== b.owner && Math.hypot(bots[j].y - b.y, bots[j].x - b.x) < br2) {
             bots[j].hp -= b.dmg;
             spawnParticle(b.x, b.y, C_BUL, 5);
             hit = true; break;
@@ -665,19 +833,17 @@ function update() {
     state = 'OVER';
     SFX.die();
     const placed = bots.length + 1;
-    const aliveBonus = placed === 1 ? 500 : 0;
     const timeBonus = survivalSeconds * 10;
-    const finalScore = elims * 1000 + aliveBonus + timeBonus;
+    const depthBonus = (level - 1) * 400;
+    const finalScore = elims * 1000 + timeBonus + bonusScore + depthBonus;
     queueZoneCollapseScore({ placed, elims, score: finalScore });
   } else if (bots.length === 0) {
-    state = 'WIN';
+    bonusScore += 650 + level * 280;
+    pendingSectorMod = pickSectorMod(level + 1);
+    state = 'ROUND_CLEAR';
+    sectorClearSince = performance.now();
+    roundClearTimer = 140;
     SFX.win();
-    const placed = 1;
-    const aliveBonus = 500;
-    const timeBonus = survivalSeconds * 10;
-    const finalScore = elims * 1000 + aliveBonus + timeBonus;
-    score = Math.max(score, finalScore);
-    queueZoneCollapseScore({ placed, elims, score: finalScore });
   }
 }
 
@@ -703,9 +869,12 @@ function draw() {
   ctx.arc(cv.width/2, cv.height/2, Math.max(0, zoneRadius), 0, Math.PI*2);
   ctx.fill();
 
-  // Zone border
-  ctx.shadowColor = C_ZONE; ctx.shadowBlur = 15;
-  ctx.strokeStyle = C_ZONE; ctx.lineWidth = 3;
+  // Zone border (storm surge tint)
+  const stormPulse = stormT > 0 ? 1.15 + Math.sin(frames * 0.14) * 0.12 : 1;
+  ctx.shadowColor = stormT > 0 ? '#ff6a00' : C_ZONE;
+  ctx.shadowBlur = 15 * stormPulse;
+  ctx.strokeStyle = stormT > 0 ? 'rgba(255,120,40,0.95)' : C_ZONE;
+  ctx.lineWidth = stormT > 0 ? 4 : 3;
   ctx.stroke();
   
   // Danger Grid outside zone
@@ -721,6 +890,11 @@ function draw() {
 
   // Draw Loot
   loot.forEach(l => {
+    if (l.risk) {
+      ctx.strokeStyle = 'rgba(255,160,60,0.9)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(l.x - 7, l.y - 7, 14, 14);
+    }
     ctx.shadowColor = C_LOOT; ctx.shadowBlur = 10;
     ctx.fillStyle = C_LOOT;
     ctx.fillRect(l.x - 5, l.y - 5, 10, 10);
@@ -750,12 +924,16 @@ function draw() {
 
   // Draw Bots
   bots.forEach(b => {
-    ctx.shadowColor = C_BOT; ctx.shadowBlur = 10;
-    ctx.strokeStyle = C_BOT;
-    ctx.lineWidth = 2;
+    const col = b.boss ? '#ffaa00' : (b.elite ? '#ffe066' : C_BOT);
+    ctx.shadowColor = col;
+    ctx.shadowBlur = b.boss ? 16 : 10;
+    ctx.strokeStyle = col;
+    ctx.lineWidth = b.boss ? 3 : 2;
     ctx.save();
     ctx.translate(b.x, b.y);
     ctx.rotate(b.ang);
+    const sc = b.boss ? 1.35 : 1;
+    ctx.scale(sc, sc);
     ctx.beginPath();
     ctx.moveTo(10, 0);
     ctx.lineTo(-8, -6);
@@ -767,7 +945,8 @@ function draw() {
     // Bot HP bar
     ctx.shadowBlur = 0;
     ctx.fillStyle = '#222'; ctx.fillRect(b.x - 10, b.y - 15, 20, 3);
-    ctx.fillStyle = C_ZONE; ctx.fillRect(b.x - 10, b.y - 15, 20 * (b.hp/55), 3);
+    const mh = b.maxHp || 55;
+    ctx.fillStyle = C_ZONE; ctx.fillRect(b.x - 10, b.y - 15, 20 * (b.hp / mh), 3);
   });
 
   // Draw Bullets
@@ -778,7 +957,7 @@ function draw() {
   });
 
   // Draw Player
-  if (state === 'PLAY' || state === 'WIN') {
+  if (state === 'PLAY' || state === 'ROUND_CLEAR') {
     ctx.shadowColor = C_PLY; ctx.shadowBlur = 15;
     ctx.strokeStyle = C_PLY;
     ctx.lineWidth = 2;
@@ -808,6 +987,14 @@ function draw() {
       ctx.beginPath();
       ctx.arc(p.x, p.y, 16, 0, Math.PI * 2);
       ctx.stroke();
+      const dc = Math.hypot(p.y - cv.height / 2, p.x - cv.width / 2);
+      if (dc > zoneRadius) {
+        ctx.globalAlpha = 0.65 + Math.sin(Date.now() * 0.008) * 0.25;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 20, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
       ctx.shadowBlur = 0;
     }
     
@@ -831,17 +1018,34 @@ function draw() {
   ctx.font = '10px "Press Start 2P"';
   
   if (state === 'PLAY') {
-    ctx.fillText(`ALIVE: ${bots.length + 1}`, 10, 20);
+    ctx.fillStyle = C_LOOT;
+    ctx.font = '8px "Press Start 2P"';
+    ctx.fillText(`SECTOR ${level}`, 10, 20);
+    ctx.fillStyle = '#fff';
+    ctx.font = '10px "Press Start 2P"';
+    ctx.fillText(`ALIVE: ${bots.length + 1}`, 10, 36);
     ctx.fillStyle = '#fff';
     ctx.font = '8px "Press Start 2P"';
-    ctx.fillText(`ELIMS: ${elims}`, 10, 38);
+    ctx.fillText(`ELIMS: ${elims}`, 10, 52);
     ctx.textAlign = 'right';
     ctx.fillStyle = C_BUL;
     ctx.fillText(String(score).padStart(6, '0'), cv.width - 10, 20);
     ctx.textAlign = 'left';
     if (bots.length === 1) {
       ctx.fillStyle = C_LOOT;
-      ctx.fillText(`1V1!`, cv.width/2 - 20, 20);
+      ctx.fillText(`1V1!`, cv.width/2 - 20, 36);
+    }
+    if (sectorMod.label) {
+      ctx.fillStyle = 'rgba(255,220,200,0.85)';
+      ctx.font = '7px "Press Start 2P"';
+      ctx.fillText(sectorMod.label, 10, 66);
+    }
+    if (stormT > 0) {
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#ff9444';
+      ctx.font = '8px "Press Start 2P"';
+      ctx.fillText('STORM!', cv.width - 10, 38);
+      ctx.textAlign = 'left';
     }
   } else if (state === 'TITLE') {
     ctx.fillStyle = 'rgba(0,0,0,0.85)'; ctx.fillRect(0,0,cv.width,cv.height);
@@ -855,7 +1059,7 @@ function draw() {
     ctx.fillText('STAY IN THE SAFE CIRCLE', cv.width/2, cv.height/2 + 10);
     ctx.fillText('ROTATE + THRUST + FIRE', cv.width/2, cv.height/2 + 25);
     ctx.fillStyle = C_LOOT;
-    ctx.fillText('CRATES: SHIELD / WEAPONS / REPAIR', cv.width/2, cv.height/2 + 40);
+    ctx.fillText('SHIELD TANKS THE STORM', cv.width/2, cv.height/2 + 40);
     
     if (Math.floor(Date.now() / 500) % 2 === 0) {
       ctx.fillStyle = '#fff'; ctx.font = '10px "Press Start 2P"';
@@ -880,22 +1084,26 @@ function draw() {
       ctx.fillText('TAP TO RETRY', cv.width/2, cv.height/2 + 60);
     }
     ctx.textAlign = 'left';
-  } else if (state === 'WIN') {
-    ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(0, 0, cv.width, cv.height);
+  } else if (state === 'ROUND_CLEAR') {
+    ctx.fillStyle = 'rgba(0,0,0,0.72)'; ctx.fillRect(0, 0, cv.width, cv.height);
     ctx.textAlign = 'center';
-    ctx.shadowColor = C_LOOT; ctx.shadowBlur = 20;
-    ctx.fillStyle = C_LOOT; ctx.font = '24px "Press Start 2P"';
-    ctx.fillText('CHAMPION', cv.width/2, cv.height/2 - 20);
+    ctx.shadowColor = C_LOOT; ctx.shadowBlur = 18;
+    ctx.fillStyle = C_LOOT; ctx.font = '18px "Press Start 2P"';
+    ctx.fillText('SECTOR CLEAR', cv.width/2, cv.height/2 - 36);
     ctx.shadowBlur = 0; ctx.fillStyle = '#fff'; ctx.font = '10px "Press Start 2P"';
-    ctx.fillText('LAST MACHINE STANDING', cv.width/2, cv.height/2 + 20);
-    if (lastElims != null) {
-      ctx.fillStyle = C_BUL; ctx.font = '10px "Press Start 2P"';
-      ctx.fillText(`ELIMS: ${lastElims}   SCORE: ${lastScore ?? 0}`, cv.width/2, cv.height/2 + 44);
+    ctx.fillText(`SECTOR ${level} COMPLETE`, cv.width/2, cv.height/2 - 8);
+    ctx.fillStyle = C_BUL; ctx.font = '8px "Press Start 2P"';
+    ctx.fillText(`NEXT: SECTOR ${level + 1}`, cv.width/2, cv.height/2 + 14);
+    if ((level + 1) % 5 === 0) {
+      ctx.fillStyle = C_ZONE; ctx.font = '8px "Press Start 2P"';
+      ctx.fillText('BOSS SECTOR', cv.width/2, cv.height/2 + 30);
+    } else if (pendingSectorMod && pendingSectorMod.label) {
+      ctx.fillStyle = C_BUL; ctx.font = '8px "Press Start 2P"';
+      ctx.fillText(pendingSectorMod.label, cv.width/2, cv.height/2 + 30);
     }
-    
+    ctx.fillStyle = '#aaa'; ctx.font = '8px "Press Start 2P"';
     if (Math.floor(Date.now() / 500) % 2 === 0) {
-      ctx.fillStyle = C_PLY;
-      ctx.fillText('TAP TO PLAY AGAIN', cv.width/2, cv.height/2 + 60);
+      ctx.fillText('TAP / THRUST / FIRE TO SKIP', cv.width/2, cv.height/2 + 40);
     }
     ctx.textAlign = 'left';
   }

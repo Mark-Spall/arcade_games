@@ -135,8 +135,11 @@ let arcadeScoreSubmitted = false;
 let hurtSfxCd = 0;
 let weaponOrbitAcc = 0;
 let weaponRender = [];
-let iframes = 0;
+let hurtBlink = 0;
+let contactDmgCd = 0;
+let campTimer = 0;
 let tipTimer = 480;
+const PLY_HIT_R = 9;
 
 // --- Input Handling ---
 window.addEventListener('keydown', e => { if(keys[e.key] !== undefined) { keys[e.key] = 1; ea(); } });
@@ -173,7 +176,9 @@ function initGame() {
   pFace = -Math.PI / 2;
   hurtSfxCd = 0;
   weaponOrbitAcc = 0;
-  iframes = 0;
+  hurtBlink = 0;
+  contactDmgCd = 0;
+  campTimer = 0;
   tipTimer = 480;
   SFX.start();
 }
@@ -277,14 +282,19 @@ function spawnEnemyAt(ex, ey) {
     hp = Math.max(1, Math.floor(baseHp * 0.82));
     speed = 0.92 + Math.random() * 0.38;
   }
+  speed *= 1 + Math.min(time, 200) * 0.004;
   enemies.push({ x: ex, y: ey, hp, speed, type, phase: Math.random() * Math.PI * 2 });
 }
 
-function enemyTouchR(e) {
-  if (e.type === 'tank') return 17;
-  if (e.type === 'swarmer') return 7;
-  if (e.type === 'flanker') return 9;
-  return 11;
+function enemyHullR(e) {
+  if (e.type === 'tank') return 12;
+  if (e.type === 'swarmer') return 5;
+  if (e.type === 'flanker') return 8;
+  return 8;
+}
+
+function enemyTouchesPlayer(e) {
+  return Math.hypot(py - e.y, px - e.x) < enemyHullR(e) + PLY_HIT_R;
 }
 
 function weaponVsEnemyR(e) {
@@ -361,7 +371,7 @@ function update() {
   frame++;
   if (frame % 60 === 0) time++;
   if (hurtSfxCd > 0) hurtSfxCd--;
-  if (iframes > 0) iframes--;
+  if (hurtBlink > 0) hurtBlink--;
   if (tipTimer > 0) tipTimer--;
 
   // Movement: keyboard + pointer can combine; pointer alone when active and far enough
@@ -383,8 +393,11 @@ function update() {
     dx /= len;
     dy /= len;
     pFace = Math.atan2(dy, dx);
+    campTimer = Math.max(0, campTimer - 3);
+  } else {
+    campTimer++;
   }
-  
+
   px += dx * pSpeed; py += dy * pSpeed;
   px = Math.max(10, Math.min(cv.width-10, px));
   py = Math.max(10, Math.min(cv.height-10, py));
@@ -409,8 +422,9 @@ function update() {
     weaponRender.push({ x: wx, y: wy, ang });
   }
 
-  // Spawning Enemies
-  let spawnRate = Math.max(10, 60 - Math.floor(time / 2));
+  // Spawning Enemies — faster spawns over time; extra pressure if camping (low movement)
+  let campPenalty = Math.min(20, Math.floor(campTimer / 32));
+  let spawnRate = Math.max(6, 60 - Math.floor(time / 2) - campPenalty);
   if (frame % spawnRate === 0) {
     let side = Math.floor(Math.random() * 4);
     let ex = side===0 ? -20 : side===1 ? cv.width+20 : Math.random()*cv.width;
@@ -455,24 +469,34 @@ function update() {
       continue;
     }
 
-    // Hit Player?
-    if (Math.hypot(py - e.y, px - e.x) < enemyTouchR(e)) {
-      if (iframes <= 0) {
-        hp -= 1;
-        spawnParticle(px, py, C_ENM, 1);
-        if (hp <= 0) {
-          state = 'OVER';
-          SFX.die();
-          queueVoidSurvivorScore(score);
-        } else {
-          if (hurtSfxCd === 0) {
-            hurtSfxCd = 10;
-            SFX.hurt();
-          }
-          iframes = 44;
-        }
+  }
+
+  // Contact damage: all overlapping enemies count; ticks on a short cooldown (no long i-frames)
+  let touchN = 0;
+  for (let e of enemies) {
+    if (enemyTouchesPlayer(e)) touchN++;
+  }
+  if (touchN > 0) {
+    contactDmgCd--;
+    if (contactDmgCd <= 0) {
+      let dmg = Math.min(touchN, 4);
+      if (touchN >= 3) dmg = Math.min(touchN + 1, 6);
+      hp -= dmg;
+      contactDmgCd = 7;
+      hurtBlink = 12;
+      spawnParticle(px, py, C_ENM, 2 + Math.min(dmg, 4));
+      if (hurtSfxCd === 0) {
+        hurtSfxCd = 5;
+        SFX.hurt();
+      }
+      if (hp <= 0) {
+        state = 'OVER';
+        SFX.die();
+        queueVoidSurvivorScore(score);
       }
     }
+  } else {
+    contactDmgCd = 0;
   }
 
   // Pickups (XP gems + hearts)
@@ -542,7 +566,7 @@ function draw() {
   }
 
   if (state !== 'TITLE') {
-    let plyBlink = iframes === 0 || ((frame >> 2) & 1) === 0;
+    let plyBlink = hurtBlink === 0 || ((frame >> 2) & 1) === 0;
     drawPlayerShip(ctx, px, py, pFace, plyBlink);
     let shardSpin = 0.082 + level * 0.0045 + Math.min(time, 100) * 0.0004;
     for (let i = 0; i < weaponRender.length; i++) {
