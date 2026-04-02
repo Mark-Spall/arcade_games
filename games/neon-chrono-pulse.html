@@ -60,6 +60,43 @@
     border-radius: 5px;
     background: radial-gradient(ellipse at center, transparent 40%, rgba(0, 5, 20, 0.6) 100%);
   }
+
+  #touch {
+    display: none;
+    position: fixed;
+    bottom: 8px;
+    left: 0;
+    right: 0;
+    padding: 0 10px;
+    z-index: 100;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 8px;
+  }
+  .tp { display: flex; gap: 8px; align-items: center; }
+  .tb {
+    background: rgba(0, 180, 255, 0.12);
+    border: 2px solid rgba(0, 180, 255, 0.35);
+    color: #0bf;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 14px;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+  }
+  .tb:active { background: rgba(0, 180, 255, 0.32); }
+  .tb.sm { width: 46px; height: 46px; font-size: 11px; }
+
+  @media (max-width: 560px) {
+    #cab { margin-bottom: 76px; }
+    #touch { display: flex; }
+  }
 </style>
 </head>
 <body>
@@ -67,6 +104,17 @@
 <div id="cab">
   <canvas id="cv" width="400" height="500"></canvas>
   <div id="crt"></div>
+</div>
+
+<div id="touch">
+  <div class="tp">
+    <button type="button" class="tb" id="t-left">◀</button>
+    <button type="button" class="tb" id="t-right">▶</button>
+  </div>
+  <div class="tp">
+    <button type="button" class="tb sm" id="t-thrust">▲</button>
+    <button type="button" class="tb" id="t-fire">●</button>
+  </div>
 </div>
 
 <script>
@@ -299,6 +347,100 @@ const MAX_BOUNCES = 6;
 const BULLET_SPD = 11;
 let prevDilationSlow = null;
 
+const SHIP_RADIUS = 7;
+const ts = { left: false, right: false, thrust: false, fire: false };
+
+function bindTouchBtn(id, key) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const on = () => { ea(); ts[key] = true; };
+  const off = () => { ts[key] = false; };
+  el.addEventListener('touchstart', e => { e.preventDefault(); on(); }, { passive: false });
+  el.addEventListener('touchend', e => { e.preventDefault(); off(); });
+  el.addEventListener('touchcancel', e => { e.preventDefault(); off(); });
+  el.addEventListener('mousedown', e => { e.preventDefault(); on(); });
+  el.addEventListener('mouseup', off);
+  el.addEventListener('mouseleave', off);
+}
+bindTouchBtn('t-left', 'left');
+bindTouchBtn('t-right', 'right');
+bindTouchBtn('t-thrust', 'thrust');
+bindTouchBtn('t-fire', 'fire');
+
+function circleObstacleOverlap(cx, cy, r) {
+  const rr = r * r;
+  for (const o of obstacles) {
+    const px = Math.max(o.x, Math.min(cx, o.x + o.w));
+    const py = Math.max(o.y, Math.min(cy, o.y + o.h));
+    const ddx = cx - px;
+    const ddy = cy - py;
+    if (ddx * ddx + ddy * ddy < rr) return true;
+  }
+  return false;
+}
+
+/** Push circle out of obstacles; optionally kill inward velocity (ship). */
+function resolveCircleFromObstacles(x, y, vx, vy, r, slideVelocity) {
+  let ex = x;
+  let ey = y;
+  let evx = vx;
+  let evy = vy;
+  for (let iter = 0; iter < 6; iter++) {
+    let hit = false;
+    for (const o of obstacles) {
+      const px = Math.max(o.x, Math.min(ex, o.x + o.w));
+      const py = Math.max(o.y, Math.min(ey, o.y + o.h));
+      const ddx = ex - px;
+      const ddy = ey - py;
+      const d2 = ddx * ddx + ddy * ddy;
+      if (d2 >= r * r || d2 < 1e-10) continue;
+      const d = Math.sqrt(d2);
+      const nx = ddx / d;
+      const ny = ddy / d;
+      const pen = r - d + 0.55;
+      ex += nx * pen;
+      ey += ny * pen;
+      if (slideVelocity) {
+        const vn = evx * nx + evy * ny;
+        if (vn < 0) {
+          evx -= vn * nx;
+          evy -= vn * ny;
+        }
+      }
+      hit = true;
+    }
+    if (!hit) break;
+  }
+  return { x: ex, y: ey, vx: evx, vy: evy };
+}
+
+/** Pick movement angle toward target that avoids a short-step collision with barriers. */
+function pickEnemySteerAngle(ex, ey, tx, ty, step, radius) {
+  const base = Math.atan2(ty - ey, tx - ex);
+  const offsets = [0, 0.45, -0.45, 0.9, -0.9, 1.4, -1.4, 2.1, -2.1, Math.PI / 2, -Math.PI / 2];
+  let bestA = base;
+  let bestDot = -2;
+  for (const da of offsets) {
+    const a = base + da;
+    const nx = ex + Math.cos(a) * step;
+    const ny = ey + Math.sin(a) * step;
+    if (circleObstacleOverlap(nx, ny, radius + 0.5)) continue;
+    const dot = Math.cos(a - base);
+    if (dot > bestDot) {
+      bestDot = dot;
+      bestA = a;
+    }
+  }
+  if (bestDot < -1.5) {
+    return base + Math.sin(frames * 0.07 + ex * 0.03 + ey * 0.02) * 1.15;
+  }
+  return bestA;
+}
+
+function spawnPositionClear(cx, cy, r) {
+  return !circleObstacleOverlap(cx, cy, r);
+}
+
 // --- Input Handling ---
 window.addEventListener('keydown', e => {
   ea();
@@ -312,37 +454,17 @@ window.addEventListener('keyup', e => {
   if (e.code === 'Space') keysFire = 0;
 });
 
-function canvasCoords(clientX, clientY) {
-  const rect = cv.getBoundingClientRect();
-  return {
-    x: (clientX - rect.left) * (cv.width / rect.width),
-    y: (clientY - rect.top) * (cv.height / rect.height),
-  };
-}
-
-// Mouse no longer aims; ship aims by rotation.
-
 function handlePointer(e) {
   e.preventDefault();
-  const rect = cv.getBoundingClientRect();
-  const touch = e.touches ? e.touches[0] : e;
-  const isTouch = e.type.startsWith('touch');
 
   if (state !== 'PLAY' && (e.type === 'mousedown' || e.type === 'touchstart')) {
     initGame();
     return;
   }
 
-  if (state === 'PLAY') {
-    if (e.type === 'mousedown' && e.button === 0) firePressed = true;
-    if (e.type === 'touchstart') {
-      const tx = (touch.clientX - rect.left) * (cv.width / rect.width);
-      const inFireZone = tx > cv.width * 0.62;
-      if (inFireZone) firePressed = true;
-    }
+  if (state === 'PLAY' && e.type === 'mousedown' && e.button === 0) {
+    firePressed = true;
   }
-
-  void isTouch;
 }
 cv.addEventListener('mousedown', handlePointer);
 window.addEventListener('mouseup', handlePointer);
@@ -444,33 +566,45 @@ function bounceBulletOffObstacles(b) {
 
 function spawnEnemyBurst() {
   if (enemies.length > 22) return;
-  // Always spawn off-screen (peripheral), never in the arena.
   const ringR = Math.hypot(cv.width, cv.height) / 2 + 80 + Math.random() * 140;
   const n = 2 + (Math.random() * 3) | 0;
   for (let k = 0; k < n; k++) {
-    const a = Math.random() * Math.PI * 2;
-    enemies.push({
-      x: ship.x + Math.cos(a) * ringR,
-      y: ship.y + Math.sin(a) * ringR,
-      reload: 55 + Math.random() * 35,
-      radius: 8,
-    });
+    let placed = false;
+    for (let t = 0; t < 14; t++) {
+      const a = Math.random() * Math.PI * 2;
+      const x = ship.x + Math.cos(a) * ringR;
+      const y = ship.y + Math.sin(a) * ringR;
+      if (spawnPositionClear(x, y, 8)) {
+        enemies.push({ x, y, reload: 55 + Math.random() * 35, radius: 8 });
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      const a = Math.random() * Math.PI * 2;
+      enemies.push({
+        x: ship.x + Math.cos(a) * ringR,
+        y: ship.y + Math.sin(a) * ringR,
+        reload: 55 + Math.random() * 35,
+        radius: 8,
+      });
+    }
   }
 }
 
 // --- Game Loop ---
 function update() {
   if (state !== 'PLAY') {
-    if (state === 'OVER' && (keys.w || keys.ArrowUp || keysFire)) initGame();
+    if (state === 'OVER' && (keys.w || keys.ArrowUp || keysFire || ts.thrust)) initGame();
     return;
   }
   
   frames++;
 
   // 1. Ship rotate + thrust. Time moves when you commit.
-  const rotLeft = keys.ArrowLeft || keys.a;
-  const rotRight = keys.ArrowRight || keys.d;
-  const thrustOn = keys.ArrowUp || keys.w;
+  const rotLeft = keys.ArrowLeft || keys.a || ts.left;
+  const rotRight = keys.ArrowRight || keys.d || ts.right;
+  const thrustOn = keys.ArrowUp || keys.w || ts.thrust;
   const brakeOn = keys.ArrowDown || keys.s;
 
   if (rotLeft) ship.angle -= ship.rotSpeed;
@@ -493,11 +627,21 @@ function update() {
 
   ship.x += ship.vx;
   ship.y += ship.vy;
-  // Wrap (Asteroids feel)
+  const shipRes = resolveCircleFromObstacles(ship.x, ship.y, ship.vx, ship.vy, SHIP_RADIUS, true);
+  ship.x = shipRes.x;
+  ship.y = shipRes.y;
+  ship.vx = shipRes.vx;
+  ship.vy = shipRes.vy;
+  // Wrap (Asteroids feel) — barriers are solid; edges still wrap
   if (ship.x < -10) ship.x = cv.width + 10;
   if (ship.x > cv.width + 10) ship.x = -10;
   if (ship.y < -10) ship.y = cv.height + 10;
   if (ship.y > cv.height + 10) ship.y = -10;
+  const shipRes2 = resolveCircleFromObstacles(ship.x, ship.y, ship.vx, ship.vy, SHIP_RADIUS, true);
+  ship.x = shipRes2.x;
+  ship.y = shipRes2.y;
+  ship.vx = shipRes2.vx;
+  ship.vy = shipRes2.vy;
 
   const isCommitting = ship.thrustOn || spd > 0.25 || rotLeft || rotRight;
   targetTimeScale = isCommitting ? 1.0 : 0.05;
@@ -516,7 +660,7 @@ function update() {
 
   // 2. Manual fire — you choose where pulses go (Space / click / touch fire zone)
   pReload -= 1 * timeScale;
-  const wantsFire = keysFire || firePressed;
+  const wantsFire = keysFire || firePressed || ts.fire;
   firePressed = false;
   if (wantsFire && pReload <= 0) {
     bullets.push({
@@ -537,28 +681,37 @@ function update() {
   const diff = Math.min(1, frames / 7200);
   const spawnEvery = Math.max(16, 52 - score - diff * 40);
   if (frames % spawnEvery === 0) {
-    const side = Math.floor(Math.random() * 4);
-    const ex = side === 0 ? -20 : side === 1 ? cv.width + 20 : Math.random() * cv.width;
-    const ey = side === 2 ? -20 : side === 3 ? cv.height + 20 : Math.random() * cv.height;
-    enemies.push({ x: ex, y: ey, reload: 50 + Math.random() * 40, radius: 8 });
-    if (Math.random() < 0.45 + diff * 0.35) {
-      const s2 = Math.floor(Math.random() * 4);
-      const ex2 = s2 === 0 ? -20 : s2 === 1 ? cv.width + 20 : Math.random() * cv.width;
-      const ey2 = s2 === 2 ? -20 : s2 === 3 ? cv.height + 20 : Math.random() * cv.height;
-      enemies.push({ x: ex2, y: ey2, reload: 55 + Math.random() * 40, radius: 8 });
+    const extra = Math.random() < 0.45 + diff * 0.35 ? 1 : 0;
+    for (let k = 0; k < 1 + extra; k++) {
+      let ex = 0;
+      let ey = 0;
+      for (let t = 0; t < 14; t++) {
+        const side = Math.floor(Math.random() * 4);
+        ex = side === 0 ? -20 : side === 1 ? cv.width + 20 : Math.random() * cv.width;
+        ey = side === 2 ? -20 : side === 3 ? cv.height + 20 : Math.random() * cv.height;
+        if (spawnPositionClear(ex, ey, 8)) break;
+      }
+      enemies.push({ x: ex, y: ey, reload: 50 + Math.random() * 40, radius: 8 });
     }
   }
   if (frames % 200 === 90 && enemies.length < Math.min(26, 12 + (score >> 1))) spawnEnemyBurst();
 
-  // 4. Update Enemies
+  // 4. Update Enemies — timeScale alone made them ~20× faster when the player moves; cap the ramp.
+  const enemyTimeScale =
+    timeScale < 0.1 ? timeScale : 0.1 + (timeScale - 0.1) * 0.42;
+  const enemyBaseSpd = 0.92 + Math.min(0.3, score / 520);
+
   for (let i = enemies.length - 1; i >= 0; i--) {
     let e = enemies[i];
     
-    // Move towards player slowly
+    const esp = enemyBaseSpd * enemyTimeScale;
+    const steerA = pickEnemySteerAngle(e.x, e.y, ship.x, ship.y, esp * 1.06, e.radius);
     let ang = Math.atan2(ship.y - e.y, ship.x - e.x);
-    const esp = (1.35 + Math.min(0.5, score / 400)) * timeScale;
-    e.x += Math.cos(ang) * esp;
-    e.y += Math.sin(ang) * esp;
+    e.x += Math.cos(steerA) * esp;
+    e.y += Math.sin(steerA) * esp;
+    const eRes = resolveCircleFromObstacles(e.x, e.y, 0, 0, e.radius, false);
+    e.x = eRes.x;
+    e.y = eRes.y;
 
     // Enemy Fire
     e.reload -= 1 * timeScale;
@@ -694,8 +847,6 @@ function draw() {
   });
 
   if (state === 'PLAY') {
-    ctx.fillStyle = 'rgba(255,255,0,0.035)';
-    ctx.fillRect(cv.width * 0.62, 0, cv.width * 0.38, cv.height);
     ctx.strokeStyle = 'rgba(255,255,0,0.4)';
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 6]);
@@ -743,7 +894,7 @@ function draw() {
     ctx.fillText(`KILLS:${score}`, 10, 20);
     ctx.fillStyle = '#778899';
     ctx.font = '7px "Press Start 2P"';
-    ctx.fillText('SPACE / CLICK — FIRE', 10, cv.height - 10);
+    ctx.fillText('SPACE / CLICK / ● — FIRE', 10, cv.height - 10);
     ctx.font = '10px "Press Start 2P"';
     ctx.fillStyle = '#fff';
     
@@ -771,7 +922,7 @@ function draw() {
     ctx.fillText('PULSES RICOCHET OFF BARRIERS', cv.width/2, cv.height/2 + 78);
     ctx.fillStyle = '#8899aa';
     ctx.font = '7px "Press Start 2P"';
-    ctx.fillText('TOUCH: TAP RIGHT ZONE TO FIRE', cv.width/2, cv.height/2 + 96);
+    ctx.fillText('MOBILE: BUTTONS BELOW • BARRIERS ARE SOLID', cv.width/2, cv.height/2 + 96);
     
     if (Math.floor(Date.now() / 500) % 2 === 0) {
       ctx.fillStyle = C_PBUL; ctx.font = '10px "Press Start 2P"';
