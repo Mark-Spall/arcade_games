@@ -320,6 +320,8 @@ function resetEntities() {
     g.color = C_GHOSTS[i];
     g.vx = i % 2 === 0 ? 1 : -1;
     g.isDead = false;
+    g.released = (i === 0);          // first ghost starts active
+    g.releaseDelay = i * 240;        // staggered release (frames)
   });
 }
 
@@ -412,6 +414,34 @@ function update() {
   ghosts.forEach(g => {
     if (alignedToTile(g.x) && alignedToTile(g.y)) {
       let r = Math.round(g.y / TS), c = Math.round(g.x / TS);
+      const inHouse = (r === 9 && c >= 8 && c <= 10);
+
+      if (!g.released) {
+        if (g.releaseDelay > 0) g.releaseDelay--;
+        else g.released = true;
+      }
+
+      // While inside the house, control movement so everyone eventually exits.
+      if (inHouse) {
+        if (!g.released) {
+          // Bounce left/right within the pen until released.
+          const leftOpen = map[r] && map[r][c - 1] !== 1;
+          const rightOpen = map[r] && map[r][c + 1] !== 1;
+          if (g.vx === 0) g.vx = 1;
+          if (g.vx < 0 && !leftOpen) g.vx = rightOpen ? 1 : 0;
+          if (g.vx > 0 && !rightOpen) g.vx = leftOpen ? -1 : 0;
+          g.vy = 0;
+        } else {
+          // Released: move to center column then go up through the gate.
+          if (c < 9) { g.vx = 1; g.vy = 0; }
+          else if (c > 9) { g.vx = -1; g.vy = 0; }
+          else { g.vx = 0; g.vy = -1; }
+        }
+      } else if (g.released && r === 8 && c === 9) {
+        // On the gate tile, keep moving up out of the house.
+        g.vx = 0; g.vy = -1;
+      }
+
       let dirs = [{x:1,y:0}, {x:-1,y:0}, {x:0,y:1}, {x:0,y:-1}];
       // Remove backwards direction
       dirs = dirs.filter(d => !(d.x === -g.vx && d.y === -g.vy) || (g.vx === 0 && g.vy === 0));
@@ -419,14 +449,23 @@ function update() {
       let validDirs = dirs.filter(d => {
         let nr = r + d.y, nc = c + d.x;
         if (nc < 0) nc = COLS - 1; if (nc >= COLS) nc = 0;
-        return map[nr] && map[nr][nc] !== 1 && map[nr][nc] !== 4;
+        const tile = map[nr] && map[nr][nc];
+        if (tile == null) return false;
+        if (tile === 1) return false;
+        // Ghost gate (4) is only passable when leaving the house from inside.
+        if (tile === 4) {
+          const leavingHouse = (g.isGhost && g.released && ((r === 9 && c >= 8 && c <= 10) || (r === 8 && c === 9)));
+          return leavingHouse;
+        }
+        return true;
       });
       // If only option is reverse (dead end), allow it — otherwise velocity stays into a wall.
       if (validDirs.length === 0 && (g.vx !== 0 || g.vy !== 0)) {
         const bx = -g.vx, by = -g.vy;
         let nr = r + by, nc = c + bx;
         if (nc < 0) nc = COLS - 1; if (nc >= COLS) nc = 0;
-        if (map[nr] && map[nr][nc] !== 1 && map[nr][nc] !== 4) {
+        const tile = map[nr] && map[nr][nc];
+        if (tile != null && tile !== 1 && tile !== 4) {
           validDirs.push({ x: bx, y: by });
         }
       }
