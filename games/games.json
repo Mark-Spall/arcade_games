@@ -105,5 +105,12 @@
     "description": "Dial orbital strikes with Arrow-key combos while you run for your life from the swarm.",
     "tags": ["Shooter", "Arcade", "Combos", "Neon"],
     "hot": true
+  },
+  {
+    "id": "neon-lander",
+    "title": "Neon Lander",
+    "href": "/games/neon-lander.html",
+    "description": "Lunar lander with neon pads: rotate, thrust, beat wind, and land softly for multipliers.",
+    "tags": ["Lander", "Arcade", "Neon"]
   }
 ]
