@@ -771,6 +771,25 @@ let selectPage=0;const LEVELS_PER_PAGE=6;
 let screenShake=0,flashTimer=0;
 let cam={x:0,y:0};
 
+// ─── Progress persistence ───
+const LS_KEY_UNLOCKED='neon-runner.levelsUnlocked';
+function clampUnlocked(n){
+  const v=Math.floor(Number(n));
+  if(!Number.isFinite(v))return 1;
+  return Math.max(1,Math.min(LEVELS.length,v));
+}
+function loadProgress(){
+  try{
+    levelsUnlocked=clampUnlocked(localStorage.getItem(LS_KEY_UNLOCKED));
+  }catch(_){}
+}
+function saveProgress(){
+  try{
+    localStorage.setItem(LS_KEY_UNLOCKED,String(clampUnlocked(levelsUnlocked)));
+  }catch(_){}
+}
+loadProgress();
+
 // Player
 const P={x:0,y:0,vx:0,vy:0,w:14,h:22,
   onGround:false,onLadder:false,onIce:false,facing:1,
@@ -1174,6 +1193,7 @@ function update(){
       SFX.exit();state='complete';
       score+=Math.floor(Math.max(0,levelTime)*10);
       levelsUnlocked=Math.max(levelsUnlocked,levelIdx+2);
+      saveProgress();
       flashTimer=8;
     }
   }
@@ -1626,11 +1646,11 @@ function drawSelect(){
     C.textAlign='center';
     C.fillStyle=locked?'#444':th.text;
     C.font='9px "Press Start 2P"';
-    C.fillText(locked?'LOCKED':lv.name,col,y+22);
-    C.fillStyle=locked?'#333':'#888';
+    C.fillText(lv.name,col,y+22);
+    C.fillStyle=locked?'rgba(255,255,255,.18)':'#888';
     C.font='7px "Press Start 2P"';
     const numHint=i<9?`PRESS ${i+1}  •  `:'';
-    C.fillText(locked?'• • •':`${numHint}${lv.theme.toUpperCase()}`,col,y+42);
+    C.fillText(locked?'🔒 LOCKED':`${numHint}${lv.theme.toUpperCase()}`,col,y+42);
   }
 
   if(totalPages>1){
