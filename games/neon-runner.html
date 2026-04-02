@@ -944,6 +944,8 @@ function update(){
   }
   if(state!=='playing')return;
 
+  const prevPX=P.x,prevPY=P.y;
+
   // Timer
   if(levelTime>0){
     levelTime-=1/60;
@@ -1090,6 +1092,10 @@ function update(){
     if(P.onLadder)return; // climbing — pass through
     const pb={x:p.x+(p.shakeX||0),y:p.y,w:p.w,h:p.h};
     if(overlap({x:P.x,y:P.y,w:P.w,h:P.h},pb)){
+      // If a vertical moving platform rose into us, don't treat it as a side hit.
+      if(p.type==='moving'&&p.moveAxis==='y'&&P.vy>=0&&(prevPY+P.h)<=pb.y+2){
+        return;
+      }
       if(wasOnLadder){
         // Just dismounted ladder inside a platform — push up onto it
         P.y=pb.y-P.h;P.vy=0;P.onGround=true;
