@@ -128,6 +128,18 @@ function alignedToTile(v) {
   return Math.abs(v / TS - Math.round(v / TS)) < 1e-4;
 }
 
+/** Tile under entity center (logic x,y; post tunnel wrap). */
+function entityInSolidTile(e) {
+  const xw = Math.max(0, Math.min(e.x, GW - 1e-6));
+  const c = Math.floor((xw + TS / 2) / TS);
+  const r = Math.floor((e.y + TS / 2) / TS);
+  if (r < 0 || r >= ROWS || !map[r]) return true;
+  const t = map[r][c];
+  if (t === 1) return true;
+  if (!e.isGhost && t === 4) return true;
+  return false;
+}
+
 function resize() {
   const mw = Math.min(window.innerWidth - 16, GW);
   const mh = Math.min(window.innerHeight - (window.innerWidth < 560 ? 160 : 16), GH);
@@ -145,6 +157,52 @@ const C_WALL = '#00d4ff';
 const C_DOT = '#ff00c8';
 const C_PAC = '#ffe600';
 const C_GHOSTS = ['#ff2244', '#39ff14', '#00e5ff', '#ffaa00'];
+
+// ─── Audio (same pattern as neon-surge / neon-blaster) ───
+const AC = window.AudioContext || window.webkitAudioContext;
+let ac;
+function ea() {
+  if (!ac) ac = new AC();
+  if (ac.state === 'suspended') ac.resume().catch(() => {});
+}
+
+function snd(f, d, t = 'square', v = 0.07) {
+  ea();
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = t;
+  o.frequency.setValueAtTime(f, ac.currentTime);
+  o.frequency.exponentialRampToValueAtTime(Math.max(f * 0.2, 20), ac.currentTime + d);
+  g.gain.setValueAtTime(v, ac.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + d);
+  o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime + d);
+}
+
+let munchFlip = false;
+const SFX = {
+  start: () => { snd(523, 0.08, 'square', 0.06); setTimeout(() => snd(784, 0.1, 'square', 0.07), 55); },
+  munch: () => {
+    munchFlip = !munchFlip;
+    snd(munchFlip ? 520 : 392, 0.04, 'square', 0.055);
+  },
+  power: () => {
+    snd(300, 0.06, 'square', 0.06);
+    setTimeout(() => snd(520, 0.08, 'square', 0.07), 45);
+    setTimeout(() => snd(880, 0.14, 'square', 0.08), 95);
+  },
+  eatGhost: () => {
+    snd(180, 0.07, 'sawtooth', 0.07);
+    setTimeout(() => snd(990, 0.12, 'square', 0.07), 55);
+  },
+  die: () => {
+    snd(300, 0.32, 'sawtooth', 0.1);
+    setTimeout(() => snd(120, 0.38, 'sawtooth', 0.08), 130);
+  },
+  level: () => {
+    snd(440, 0.09, 'square', 0.06);
+    setTimeout(() => snd(554, 0.1, 'square', 0.065), 65);
+    setTimeout(() => snd(784, 0.16, 'square', 0.075), 135);
+  }
+};
 
 // ─── Map Data (0: empty, 1: wall, 2: pellet, 3: power pellet, 4: gate) ───
 const rawMap = [
@@ -207,7 +265,7 @@ class Entity {
 
     // Snap to grid intersections to turn
     if (alignedToTile(this.x) && alignedToTile(this.y)) {
-      let r = this.y / TS, c = this.x / TS;
+      let r = Math.round(this.y / TS), c = Math.round(this.x / TS);
       // Try next direction
       if (!(this.nextVx === 0 && this.nextVy === 0)) {
         let nextR = r + this.nextVy; let nextC = c + this.nextVx;
@@ -223,13 +281,21 @@ class Entity {
         this.vx = 0; this.vy = 0;
       }
     }
-    
+
+    const px = this.x, py = this.y;
     this.x += this.vx * this.speed;
     this.y += this.vy * this.speed;
-    
-    // Screen wrap
+
+    // Side tunnels (same alignment as before — GW-TS, not modulo)
     if (this.x < 0) this.x = GW - TS;
     if (this.x >= GW) this.x = 0;
+
+    if (entityInSolidTile(this)) {
+      this.x = px;
+      this.y = py;
+      this.vx = 0;
+      this.vy = 0;
+    }
   }
 }
 
@@ -237,6 +303,7 @@ let pac, ghosts;
 
 function resetEntities() {
   pac = new Entity(9, 15, 2);
+  pac.isGhost = false;
   pac.angle = 0; pac.mouthOpen = 0; pac.mouthDir = 1;
 
   ghosts = [
@@ -244,6 +311,7 @@ function resetEntities() {
     new Entity(10, 9, 1.25), new Entity(9, 7, 1.25)
   ];
   ghosts.forEach((g, i) => {
+    g.isGhost = true;
     g.color = C_GHOSTS[i];
     g.vx = i % 2 === 0 ? 1 : -1;
     g.isDead = false;
@@ -255,6 +323,8 @@ function startGame() {
   initMap(); resetEntities();
   gameState = 'play';
   arcadeScoreSubmitted = false;
+  munchFlip = false;
+  SFX.start();
 }
 
 function queueNeonGobblerScore(finalScore) {
@@ -275,6 +345,7 @@ function queueNeonGobblerScore(finalScore) {
 // ─── Input ───
 const keys = {ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false};
 window.addEventListener('keydown', e => {
+  ea();
   if(gameState !== 'play') { if(e.key === 'Enter' || e.key === ' ') startGame(); return; }
   const k = String(e.key || '');
   if (k === 'w' || k === 'W' || k === 'ArrowUp')    { pac.nextVx = 0; pac.nextVy = -1; pac.angle = -Math.PI/2; }
@@ -288,6 +359,7 @@ const bindBtn = (id, dx, dy, ang) => {
   const btn = document.getElementById(id);
   const trigger = (e) => {
     e.preventDefault();
+    ea();
     if(gameState !== 'play') startGame();
     pac.nextVx = dx; pac.nextVy = dy; pac.angle = ang;
   };
@@ -298,6 +370,17 @@ bindBtn('t-up', 0, -1, -Math.PI/2);
 bindBtn('t-down', 0, 1, Math.PI/2);
 bindBtn('t-left', -1, 0, Math.PI);
 bindBtn('t-right', 1, 0, 0);
+
+function pointerStartGame() {
+  ea();
+  if (gameState === 'title' || gameState === 'over') startGame();
+}
+cv.addEventListener('click', pointerStartGame);
+cv.addEventListener('touchstart', (e) => {
+  if (gameState !== 'title' && gameState !== 'over') return;
+  e.preventDefault();
+  pointerStartGame();
+}, { passive: false });
 
 // ─── Game Loop ───
 function update() {
@@ -312,9 +395,11 @@ function update() {
     let r = Math.round(pac.y / TS), c = Math.round(pac.x / TS);
     if (map[r][c] === 2) {
       map[r][c] = 0; score += 10; pelletsLeft--;
+      SFX.munch();
     } else if (map[r][c] === 3) {
       map[r][c] = 0; score += 50; pelletsLeft--;
       powerTimer = 400; // Power mode duration
+      SFX.power();
     }
   }
 
@@ -331,9 +416,20 @@ function update() {
         if (nc < 0) nc = COLS - 1; if (nc >= COLS) nc = 0;
         return map[nr] && map[nr][nc] !== 1 && map[nr][nc] !== 4;
       });
+      // If only option is reverse (dead end), allow it — otherwise velocity stays into a wall.
+      if (validDirs.length === 0 && (g.vx !== 0 || g.vy !== 0)) {
+        const bx = -g.vx, by = -g.vy;
+        let nr = r + by, nc = c + bx;
+        if (nc < 0) nc = COLS - 1; if (nc >= COLS) nc = 0;
+        if (map[nr] && map[nr][nc] !== 1 && map[nr][nc] !== 4) {
+          validDirs.push({ x: bx, y: by });
+        }
+      }
       if (validDirs.length > 0) {
         let chosen = validDirs[Math.floor(Math.random() * validDirs.length)];
         g.vx = chosen.x; g.vy = chosen.y;
+      } else {
+        g.vx = 0; g.vy = 0;
       }
     }
     
@@ -348,11 +444,13 @@ function update() {
       if (powerTimer > 0 && !g.isDead) {
         g.isDead = true;
         score += 200;
+        SFX.eatGhost();
         // Reset ghost position loosely
         g.x = 9 * TS; g.y = 9 * TS;
         setTimeout(() => { g.isDead = false; }, 3000);
       } else if (!g.isDead) {
         lives--;
+        SFX.die();
         if (lives <= 0) {
           gameState = 'over';
           queueNeonGobblerScore(score);
@@ -363,6 +461,7 @@ function update() {
   });
 
   if (pelletsLeft === 0) {
+    SFX.level();
     initMap(); resetEntities(); // Next Level loop
   }
 }

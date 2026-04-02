@@ -165,6 +165,60 @@ const C_STAR = 'rgba(200,220,255,0.12)';
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 function rand(a, b) { return a + Math.random() * (b - a); }
 
+// --- Retro audio (Web Audio, unlocks on first gesture) ---
+const AC = window.AudioContext || window.webkitAudioContext;
+let ac;
+function ea() {
+  if (!ac) ac = new AC();
+  if (ac.state === 'suspended') ac.resume().catch(() => {});
+}
+function snd(freq, dur, type = 'square', vol = 0.07) {
+  ea();
+  const o = ac.createOscillator();
+  const g = ac.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, ac.currentTime);
+  o.frequency.exponentialRampToValueAtTime(Math.max(freq * 0.2, 20), ac.currentTime + dur);
+  g.gain.setValueAtTime(vol, ac.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur);
+  o.connect(g);
+  g.connect(ac.destination);
+  o.start();
+  o.stop(ac.currentTime + dur);
+}
+const SFX = {
+  shoot: () => snd(880, 0.055, 'square', 0.048),
+  thrust: () => snd(62, 0.038, 'sawtooth', 0.022),
+  hitBot: () => snd(220, 0.045, 'square', 0.038),
+  hitPlayer: () => snd(140, 0.09, 'sawtooth', 0.065),
+  shieldHit: () => {
+    snd(600, 0.035, 'triangle', 0.04);
+    setTimeout(() => snd(900, 0.03, 'square', 0.03), 40);
+  },
+  enemyShoot: () => snd(380, 0.042, 'triangle', 0.028),
+  pickup: (t) => {
+    if (t === 'REPAIR') { snd(400, 0.05); setTimeout(() => snd(520, 0.05), 55); }
+    else if (t === 'SHIELD') { snd(720, 0.06, 'square', 0.045); }
+    else if (t === 'BOOST') { snd(180, 0.04); setTimeout(() => snd(320, 0.06, 'sawtooth', 0.04), 50); }
+    else { snd(660, 0.05); setTimeout(() => snd(880, 0.055), 60); }
+  },
+  explode: () => {
+    snd(95, 0.11, 'sawtooth', 0.075);
+    snd(45, 0.14, 'square', 0.045);
+  },
+  die: () => {
+    snd(220, 0.18, 'sawtooth', 0.085);
+    setTimeout(() => snd(70, 0.32, 'sawtooth', 0.055), 110);
+  },
+  win: () => {
+    snd(392, 0.07, 'square', 0.055);
+    setTimeout(() => snd(523, 0.07, 'square', 0.055), 85);
+    setTimeout(() => snd(659, 0.12, 'square', 0.06), 170);
+  },
+  zoneBurn: () => snd(55, 0.028, 'square', 0.018),
+  startGame: () => { snd(330, 0.05); setTimeout(() => snd(440, 0.06), 70); },
+};
+
 // --- Game State ---
 let state = 'TITLE'; // TITLE, PLAY, OVER, WIN
 let frames = 0;
@@ -193,7 +247,7 @@ const ts = Object.create(null);
 function addT(id, key) {
   const el = document.getElementById(id);
   if (!el) return;
-  el.addEventListener('touchstart', (e) => { e.preventDefault(); ts[key] = 1; });
+  el.addEventListener('touchstart', (e) => { e.preventDefault(); ea(); ts[key] = 1; });
   el.addEventListener('touchend', (e) => { e.preventDefault(); ts[key] = 0; });
   el.addEventListener('touchcancel', (e) => { e.preventDefault(); ts[key] = 0; });
 }
@@ -202,8 +256,10 @@ addT('t-thrust', 'thrust'); addT('t-fire', 'fire');
 
 function handlePointer(e) {
   e.preventDefault();
-  if (state !== 'PLAY' && (e.type === 'mousedown' || e.type === 'touchstart')) { 
-    initGame(); return; 
+  if (state !== 'PLAY' && (e.type === 'mousedown' || e.type === 'touchstart')) {
+    ea();
+    initGame();
+    return;
   }
   let rect = cv.getBoundingClientRect();
   let touch = e.touches ? e.touches[0] : e;
@@ -287,6 +343,7 @@ function initGame() {
   }
   
   state = 'PLAY';
+  SFX.startGame();
 }
 
 function spawnLoot() {
@@ -374,12 +431,15 @@ function update() {
     p.ang += clamp(da, -turn, turn);
     p.vx += Math.cos(p.ang) * thrust;
     p.vy += Math.sin(p.ang) * thrust;
+    if (frames % 8 === 0 && Math.random() < 0.32) SFX.thrust();
+    if (frames % 6 === 0) spawnParticle(p.x - Math.cos(p.ang) * 10, p.y - Math.sin(p.ang) * 10, C_PLY, 1, 1.2);
   } else {
     if (K('left')) p.ang -= turn;
     if (K('right')) p.ang += turn;
     if (K('thrust')) {
       p.vx += Math.cos(p.ang) * thrust;
       p.vy += Math.sin(p.ang) * thrust;
+      if (frames % 8 === 0 && Math.random() < 0.32) SFX.thrust();
       if (frames % 6 === 0) spawnParticle(p.x - Math.cos(p.ang) * 10, p.y - Math.sin(p.ang) * 10, C_PLY, 1, 1.2);
     }
   }
@@ -436,6 +496,7 @@ function update() {
     }
 
     spawnParticle(p.x + Math.cos(p.ang) * 10, p.y + Math.sin(p.ang) * 10, C_BUL, 4, 1.2);
+    SFX.shoot();
   }
 
   // 3. Collect Loot
@@ -443,6 +504,7 @@ function update() {
     let l = loot[i];
     if (Math.hypot(p.y - l.y, p.x - l.x) < 15) {
       applyLoot(l);
+      SFX.pickup(l.type);
       spawnParticle(l.x, l.y, C_LOOT, 20);
       loot.splice(i, 1);
       // Respawn a new crate to keep the arena spicy
@@ -527,11 +589,13 @@ function update() {
       let ang = Math.atan2(aimY - b.y, aimX - b.x);
       bullets.push({x: b.x + Math.cos(ang)*10, y: b.y + Math.sin(ang)*10, vx: Math.cos(ang)*5.6, vy: Math.sin(ang)*5.6, isPlayer: false, dmg: 11, owner: b, life: 120});
       b.reload = (b.persona === 'HUNTER' ? 28 : 40) + Math.random()*28;
+      SFX.enemyShoot();
     }
 
     // Death
     if (b.hp <= 0) {
       spawnParticle(b.x, b.y, C_BOT, 30);
+      SFX.explode();
       elims++;
       // (score is computed from elims + time; bonus visuals handled separately)
       if (Math.random() < 0.55) loot.push({x: b.x, y: b.y, type: Math.random() < 0.15 ? 'REPAIR' : (Math.random() < 0.5 ? 'TRIPLE' : 'SHIELD')}); // Drop loot
@@ -557,6 +621,7 @@ function update() {
         if (Math.hypot(bots[j].y - b.y, bots[j].x - b.x) < 12) {
           bots[j].hp -= b.dmg;
           spawnParticle(b.x, b.y, C_BUL, 5);
+          SFX.hitBot();
           hit = true; break;
         }
       }
@@ -566,9 +631,11 @@ function update() {
         if (p.shield > 0) {
           p.shield--;
           spawnParticle(b.x, b.y, C_LOOT, 12);
+          SFX.shieldHit();
         } else {
           p.hp -= b.dmg;
           spawnParticle(b.x, b.y, C_ZONE, 10);
+          SFX.hitPlayer();
         }
         hit = true;
       }
@@ -596,6 +663,7 @@ function update() {
   // 7. Win/Loss Conditions
   if (p.hp <= 0) {
     state = 'OVER';
+    SFX.die();
     const placed = bots.length + 1;
     const aliveBonus = placed === 1 ? 500 : 0;
     const timeBonus = survivalSeconds * 10;
@@ -603,6 +671,7 @@ function update() {
     queueZoneCollapseScore({ placed, elims, score: finalScore });
   } else if (bots.length === 0) {
     state = 'WIN';
+    SFX.win();
     const placed = 1;
     const aliveBonus = 500;
     const timeBonus = survivalSeconds * 10;

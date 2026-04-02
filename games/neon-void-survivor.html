@@ -87,6 +87,32 @@ const C_ENM = '#ff003c';
 const C_WPN = '#ffff00';
 const C_EXP = '#b000ff';
 
+// --- Audio (same pattern as neon-surge / neon-blaster) ---
+const AC = window.AudioContext || window.webkitAudioContext;
+let ac;
+function ea() { if (!ac) ac = new AC(); }
+
+function snd(f, d, t = 'square', v = 0.07) {
+  ea();
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = t;
+  o.frequency.setValueAtTime(f, ac.currentTime);
+  o.frequency.exponentialRampToValueAtTime(Math.max(f * 0.2, 20), ac.currentTime + d);
+  g.gain.setValueAtTime(v, ac.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + d);
+  o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime + d);
+}
+
+const SFX = {
+  zap: () => snd(620, 0.045, 'square', 0.045),
+  kill: () => snd(180, 0.11, 'sawtooth', 0.075),
+  gem: () => snd(720, 0.055, 'triangle', 0.055),
+  level: () => { snd(480, 0.07); setTimeout(() => snd(960, 0.12, 'square', 0.06), 55); },
+  hurt: () => snd(120, 0.07, 'sawtooth', 0.055),
+  die: () => { snd(300, 0.45, 'sawtooth', 0.12); setTimeout(() => snd(90, 0.5, 'sawtooth', 0.07), 190); },
+  start: () => { snd(220, 0.06); setTimeout(() => snd(440, 0.1), 45); }
+};
+
 // --- Game State ---
 let px = 200, py = 250, pSpeed = 2.5;
 let hp = 100, maxHp = 100;
@@ -101,13 +127,15 @@ let enemies = [];
 let gems = [];
 let particles = [];
 let arcadeScoreSubmitted = false;
+let hurtSfxCd = 0;
 
 // --- Input Handling ---
-window.addEventListener('keydown', e => { if(keys[e.key] !== undefined) keys[e.key] = 1; });
+window.addEventListener('keydown', e => { if(keys[e.key] !== undefined) { keys[e.key] = 1; ea(); } });
 window.addEventListener('keyup', e => { if(keys[e.key] !== undefined) keys[e.key] = 0; });
 
 function handlePointer(e) {
   e.preventDefault();
+  ea();
   if (state !== 'PLAY') { initGame(); return; }
   let rect = cv.getBoundingClientRect();
   let touch = e.touches ? e.touches[0] : e;
@@ -134,6 +162,8 @@ function initGame() {
   pointer.y = py;
   for (const k of Object.keys(keys)) keys[k] = 0;
   pFace = -Math.PI / 2;
+  hurtSfxCd = 0;
+  SFX.start();
 }
 
 function queueVoidSurvivorScore(finalScore) {
@@ -211,6 +241,7 @@ function update() {
   
   frame++;
   if (frame % 60 === 0) time++;
+  if (hurtSfxCd > 0) hurtSfxCd--;
 
   // Movement: keyboard + pointer can combine; pointer alone when active and far enough
   let dx = 0, dy = 0;
@@ -277,6 +308,11 @@ function update() {
       }
     }
 
+    if (hit) {
+      if (e.hp <= 0) SFX.kill();
+      else SFX.zap();
+    }
+
     if (e.hp <= 0) {
       score += 10;
       spawnParticle(e.x, e.y, C_ENM, 5);
@@ -291,7 +327,11 @@ function update() {
       spawnParticle(px, py, C_ENM, 1);
       if (hp <= 0) {
         state = 'OVER';
+        SFX.die();
         queueVoidSurvivorScore(score);
+      } else if (hurtSfxCd === 0) {
+        hurtSfxCd = 10;
+        SFX.hurt();
       }
     }
   }
@@ -308,10 +348,12 @@ function update() {
     if (dist < 15) { // Collect
       xp++; score += 5;
       gems.splice(i, 1);
+      SFX.gem();
       if (xp >= nextXp) {
         level++; xp = 0; nextXp = Math.floor(nextXp * 1.5);
         hp = Math.min(maxHp, hp + 20); // Heal on level up
         spawnParticle(px, py, C_PLY, 20);
+        SFX.level();
       }
     }
   }

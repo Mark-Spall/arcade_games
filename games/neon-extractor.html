@@ -86,6 +86,47 @@ const C_LSR = '#ffe600';
 const C_ENM = '#ff003c';
 const C_POD = '#39ff14';
 
+// --- Audio (same pattern as neon-surge / neon-void-survivor) ---
+const AC = window.AudioContext || window.webkitAudioContext;
+let ac;
+function ea() {
+  if (!ac) ac = new AC();
+  if (ac.state === 'suspended') ac.resume().catch(() => {});
+}
+function snd(f, d, t = 'square', v = 0.07) {
+  ea();
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = t;
+  o.frequency.setValueAtTime(f, ac.currentTime);
+  o.frequency.exponentialRampToValueAtTime(Math.max(f * 0.2, 20), ac.currentTime + d);
+  g.gain.setValueAtTime(v, ac.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + d);
+  o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime + d);
+}
+const SFX = {
+  start: () => { snd(220, 0.06); setTimeout(() => snd(440, 0.1), 45); },
+  shoot: () => snd(900, 0.036, 'square', 0.05),
+  kill: () => snd(195, 0.1, 'sawtooth', 0.07),
+  power: () => {
+    snd(320, 0.05, 'square', 0.055);
+    setTimeout(() => snd(660, 0.07, 'square', 0.062), 42);
+    setTimeout(() => snd(980, 0.09, 'square', 0.058), 95);
+  },
+  rescue: () => {
+    snd(523, 0.055, 'triangle', 0.055);
+    setTimeout(() => snd(784, 0.075, 'triangle', 0.06), 48);
+    setTimeout(() => snd(1046, 0.095, 'square', 0.052), 105);
+  },
+  shieldPop: () => {
+    snd(440, 0.075, 'triangle', 0.08);
+    setTimeout(() => snd(200, 0.2, 'sawtooth', 0.068), 32);
+  },
+  die: () => {
+    snd(290, 0.4, 'sawtooth', 0.11);
+    setTimeout(() => snd(95, 0.46, 'sawtooth', 0.072), 170);
+  }
+};
+
 // --- Game State ---
 let state = 'TITLE'; // TITLE, PLAY, OVER
 let frames = 0, score = 0, rescued = 0;
@@ -119,6 +160,7 @@ function initGame() {
   frames = 0; score = 0; rescued = 0; scrollSpeed = 2.5;
   state = 'PLAY';
   arcadeScoreSubmitted = false;
+  SFX.start();
   activePower = { type: null, timer: 0 };
   shield = 0;
   autoFireCD = 0;
@@ -143,6 +185,7 @@ function queueNeonExtractorScore(finalScore) {
 function gameOver() {
   if (state !== 'PLAY') return;
   state = 'OVER';
+  SFX.die();
   queueNeonExtractorScore(score);
 }
 
@@ -169,6 +212,7 @@ function dropPower(x, y, forcedType) {
 // --- Inputs ---
 function action(e) {
   if (e) e.preventDefault();
+  ea();
   if (state === 'TITLE' || state === 'OVER') {
     initGame();
   } else if (state === 'PLAY') {
@@ -180,6 +224,7 @@ function action(e) {
       lasers.push({ ...base, vy: -1.4, pierce: 0 });
       lasers.push({ ...base, vy: 1.4, pierce: 0 });
     }
+    SFX.shoot();
     spawnParticle(p.x - p.radius, p.y, C_PLY, 3, -2); // Thruster exhaust
   }
 }
@@ -333,6 +378,7 @@ function update() {
       if (shield) {
         shield = 0;
         activePower = { type: null, timer: 0 };
+        SFX.shieldPop();
         spawnParticle(p.x, p.y, C_PLY, 12);
         enemies.splice(i, 1);
       } else {
@@ -348,6 +394,7 @@ function update() {
       if (Math.hypot(l.x - e.x, l.y - e.y) < e.radius + 4) {
         spawnParticle(e.x, e.y, C_ENM, 10);
         score += 60;
+        SFX.kill();
         enemies.splice(i, 1);
         // Chance to drop a power-up on kills, ramps up slowly.
         if (Math.random() < Math.min(0.18, 0.06 + frames / 9000)) dropPower(e.x, e.y);
@@ -375,6 +422,7 @@ function update() {
       if (shield) {
         shield = 0;
         activePower = { type: null, timer: 0 };
+        SFX.shieldPop();
         bombs.splice(i, 1);
       } else {
         gameOver();
@@ -395,6 +443,7 @@ function update() {
     }
     if (Math.hypot(p.x - u.x, p.y - u.y) < p.radius + u.r + 8) {
       givePower(u.type);
+      SFX.power();
       spawnParticle(u.x, u.y, u.type === 'shield' ? C_PLY : C_LSR, 16);
       score += 25;
       powerups.splice(i, 1);
@@ -411,6 +460,7 @@ function update() {
       pod.active = false;
       rescued++;
       score += 150;
+      SFX.rescue();
       spawnParticle(pod.x, pod.y, C_POD, 15);
       // occasional guaranteed drop on rescues
       if (rescued % 3 === 0 || Math.random() < 0.25) dropPower(pod.x, pod.y, Math.random() < 0.45 ? 'rapid' : 'spread');
