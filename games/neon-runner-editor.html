@@ -1081,10 +1081,22 @@
       window.addEventListener('mouseup',onUp);
 
       window.addEventListener('keydown',(e)=>{
+        const t=e.target;
+        const typingTarget=!!t && (
+          t.tagName==='INPUT' ||
+          t.tagName==='TEXTAREA' ||
+          t.tagName==='SELECT' ||
+          t.isContentEditable
+        );
+        if(typingTarget){
+          // Let normal editing keys work inside forms.
+          // Still allow Ctrl/Cmd shortcuts below (save/undo/redo).
+        }
         const isCmd=e.ctrlKey||e.metaKey;
         if(isCmd && (e.key==='z' || e.key==='Z')){ e.preventDefault(); doUndo(); return; }
         if(isCmd && (e.key==='y' || e.key==='Y')){ e.preventDefault(); doRedo(); return; }
         if(isCmd && (e.key==='s' || e.key==='S')){ e.preventDefault(); save(); return; }
+        if(typingTarget)return;
         if(e.key==='Tab'){
           e.preventDefault();
           if(state.overlapCycle && state.overlapCycle.list.length>1){
