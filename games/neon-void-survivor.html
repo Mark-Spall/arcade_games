@@ -86,6 +86,10 @@ const C_PLY = '#00ffff';
 const C_ENM = '#ff003c';
 const C_WPN = '#ffff00';
 const C_EXP = '#b000ff';
+const C_HEART = '#00ff99';
+const C_FLNK = '#ff6600';
+const C_SWARM = '#ff88cc';
+const C_TANK = '#aa0044';
 
 // --- Audio (same pattern as neon-surge / neon-blaster) ---
 const AC = window.AudioContext || window.webkitAudioContext;
@@ -110,7 +114,8 @@ const SFX = {
   level: () => { snd(480, 0.07); setTimeout(() => snd(960, 0.12, 'square', 0.06), 55); },
   hurt: () => snd(120, 0.07, 'sawtooth', 0.055),
   die: () => { snd(300, 0.45, 'sawtooth', 0.12); setTimeout(() => snd(90, 0.5, 'sawtooth', 0.07), 190); },
-  start: () => { snd(220, 0.06); setTimeout(() => snd(440, 0.1), 45); }
+  start: () => { snd(220, 0.06); setTimeout(() => snd(440, 0.1), 45); },
+  heal: () => { snd(380, 0.07, 'triangle', 0.06); setTimeout(() => snd(520, 0.09, 'sine', 0.05), 60); }
 };
 
 // --- Game State ---
@@ -124,10 +129,14 @@ let pointer = { active: false, x: 200, y: 250 };
 let pFace = 0;
 
 let enemies = [];
-let gems = [];
+let pickups = [];
 let particles = [];
 let arcadeScoreSubmitted = false;
 let hurtSfxCd = 0;
+let weaponOrbitAcc = 0;
+let weaponRender = [];
+let iframes = 0;
+let tipTimer = 480;
 
 // --- Input Handling ---
 window.addEventListener('keydown', e => { if(keys[e.key] !== undefined) { keys[e.key] = 1; ea(); } });
@@ -154,7 +163,7 @@ function initGame() {
   px = 200; py = 250; hp = 100; maxHp = 100;
   xp = 0; nextXp = 5; level = 1;
   time = 0; frame = 0; score = 0;
-  enemies = []; gems = []; particles = [];
+  enemies = []; pickups = []; particles = [];
   state = 'PLAY';
   arcadeScoreSubmitted = false;
   pointer.active = false;
@@ -163,6 +172,9 @@ function initGame() {
   for (const k of Object.keys(keys)) keys[k] = 0;
   pFace = -Math.PI / 2;
   hurtSfxCd = 0;
+  weaponOrbitAcc = 0;
+  iframes = 0;
+  tipTimer = 480;
   SFX.start();
 }
 
@@ -192,7 +204,8 @@ function spawnParticle(x, y, color, count) {
   }
 }
 
-function drawPlayerShip(c, x, y, face) {
+function drawPlayerShip(c, x, y, face, visible) {
+  if (!visible) return;
   c.save();
   c.translate(x, y);
   c.rotate(face);
@@ -233,6 +246,112 @@ function drawPlayerShip(c, x, y, face) {
   c.restore();
 }
 
+function pickEnemyType() {
+  const r = Math.random();
+  const t = time;
+  if (t < 18) return r < 0.88 ? 'grunt' : 'swarmer';
+  if (t < 48) {
+    if (r < 0.4) return 'grunt';
+    if (r < 0.66) return 'swarmer';
+    if (r < 0.86) return 'flanker';
+    return 'tank';
+  }
+  if (r < 0.26) return 'grunt';
+  if (r < 0.46) return 'swarmer';
+  if (r < 0.71) return 'flanker';
+  return 'tank';
+}
+
+function spawnEnemyAt(ex, ey) {
+  const type = pickEnemyType();
+  const baseHp = 1 + Math.floor(time / 15);
+  let hp = baseHp;
+  let speed = 0.85 + Math.random() * 0.48;
+  if (type === 'swarmer') {
+    hp = Math.max(1, Math.floor(baseHp * 0.5));
+    speed = 1.22 + Math.random() * 0.58;
+  } else if (type === 'tank') {
+    hp = Math.max(3, Math.floor(baseHp * 2.35) + 2);
+    speed = 0.4 + Math.random() * 0.24;
+  } else if (type === 'flanker') {
+    hp = Math.max(1, Math.floor(baseHp * 0.82));
+    speed = 0.92 + Math.random() * 0.38;
+  }
+  enemies.push({ x: ex, y: ey, hp, speed, type, phase: Math.random() * Math.PI * 2 });
+}
+
+function enemyTouchR(e) {
+  if (e.type === 'tank') return 17;
+  if (e.type === 'swarmer') return 7;
+  if (e.type === 'flanker') return 9;
+  return 11;
+}
+
+function weaponVsEnemyR(e) {
+  return e.type === 'tank' ? 18 : 14;
+}
+
+function drawEnemy(e) {
+  let ang = Math.atan2(py - e.y, px - e.x);
+  let col = C_ENM;
+  if (e.type === 'swarmer') col = C_SWARM;
+  else if (e.type === 'tank') col = C_TANK;
+  else if (e.type === 'flanker') col = C_FLNK;
+  ctx.shadowColor = col;
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  if (e.type === 'grunt') {
+    ctx.moveTo(e.x + Math.cos(ang) * 8, e.y + Math.sin(ang) * 8);
+    ctx.lineTo(e.x + Math.cos(ang + 2.5) * 8, e.y + Math.sin(ang + 2.5) * 8);
+    ctx.lineTo(e.x + Math.cos(ang - 2.5) * 8, e.y + Math.sin(ang - 2.5) * 8);
+  } else if (e.type === 'swarmer') {
+    let s = 5;
+    ctx.moveTo(e.x + Math.cos(ang) * s, e.y + Math.sin(ang) * s);
+    ctx.lineTo(e.x + Math.cos(ang + Math.PI / 2) * s, e.y + Math.sin(ang + Math.PI / 2) * s);
+    ctx.lineTo(e.x + Math.cos(ang + Math.PI) * s, e.y + Math.sin(ang + Math.PI) * s);
+    ctx.lineTo(e.x + Math.cos(ang - Math.PI / 2) * s, e.y + Math.sin(ang - Math.PI / 2) * s);
+  } else if (e.type === 'tank') {
+    let R = 11;
+    for (let k = 0; k < 6; k++) {
+      let a = ang - Math.PI / 2 + k * Math.PI / 3;
+      let vx = e.x + Math.cos(a) * R, vy = e.y + Math.sin(a) * R;
+      if (k === 0) ctx.moveTo(vx, vy);
+      else ctx.lineTo(vx, vy);
+    }
+  } else {
+    ctx.moveTo(e.x + Math.cos(ang) * 10, e.y + Math.sin(ang) * 10);
+    ctx.lineTo(e.x + Math.cos(ang + 2.15) * 6, e.y + Math.sin(ang + 2.15) * 6);
+    ctx.lineTo(e.x + Math.cos(ang + Math.PI) * 5, e.y + Math.sin(ang + Math.PI) * 5);
+    ctx.lineTo(e.x + Math.cos(ang - 2.15) * 6, e.y + Math.sin(ang - 2.15) * 6);
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawPickup(pu) {
+  if (pu.kind === 'xp') {
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = C_EXP;
+    ctx.fillStyle = C_EXP;
+    ctx.beginPath();
+    ctx.arc(pu.x, pu.y, 3, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+  ctx.shadowBlur = 12;
+  ctx.shadowColor = C_HEART;
+  ctx.fillStyle = C_HEART;
+  let x = pu.x, y = pu.y;
+  ctx.beginPath();
+  ctx.arc(x - 2.2, y - 1, 2.3, 0, Math.PI * 2);
+  ctx.arc(x + 2.2, y - 1, 2.3, 0, Math.PI * 2);
+  ctx.moveTo(x - 4.2, y + 0.5);
+  ctx.lineTo(x, y + 6);
+  ctx.lineTo(x + 4.2, y + 0.5);
+  ctx.closePath();
+  ctx.fill();
+}
+
 function update() {
   if (state !== 'PLAY') {
     if ((keys.w || keys.ArrowUp || keys.s) && state !== 'PLAY') initGame();
@@ -242,6 +361,8 @@ function update() {
   frame++;
   if (frame % 60 === 0) time++;
   if (hurtSfxCd > 0) hurtSfxCd--;
+  if (iframes > 0) iframes--;
+  if (tipTimer > 0) tipTimer--;
 
   // Movement: keyboard + pointer can combine; pointer alone when active and far enough
   let dx = 0, dy = 0;
@@ -268,18 +389,24 @@ function update() {
   px = Math.max(10, Math.min(cv.width-10, px));
   py = Math.max(10, Math.min(cv.height-10, py));
 
-  // Weapons (Orbiters based on level)
+  // Weapons — smooth spin + faster with level/time; precession wobble
   let wpnCount = Math.min(level, 8);
-  let orbitRadius = 40 + Math.min(level * 2, 40);
-  let wpnSpeed = time * 3;
+  let orbitBase = 40 + Math.min(level * 2, 40);
+  let radiusWobble = 1 + Math.sin(frame * 0.021) * 0.055;
+  let precession = Math.sin(frame * 0.015) * 0.2 + Math.cos(frame * 0.0087) * 0.12;
+  weaponOrbitAcc += 0.0075 + level * 0.0033 + Math.min(time, 120) * 0.00022;
+  if (weaponOrbitAcc > 800) weaponOrbitAcc -= 600;
   let weapons = [];
-  for(let i=0; i<wpnCount; i++) {
-    let ang = (wpnSpeed + (i * 360 / wpnCount)) * Math.PI / 180;
-    weapons.push({
-      x: px + Math.cos(ang) * orbitRadius,
-      y: py + Math.sin(ang) * orbitRadius,
-      r: 6
-    });
+  weaponRender.length = 0;
+  let tau = Math.PI * 2;
+  for (let i = 0; i < wpnCount; i++) {
+    let slotWobble = 1 + Math.sin(frame * 0.018 + i * 1.7) * 0.04;
+    let r = orbitBase * radiusWobble * slotWobble;
+    let ang = weaponOrbitAcc + precession + (i * tau) / wpnCount;
+    let wx = px + Math.cos(ang) * r;
+    let wy = py + Math.sin(ang) * r;
+    weapons.push({ x: wx, y: wy, r: 6 });
+    weaponRender.push({ x: wx, y: wy, ang });
   }
 
   // Spawning Enemies
@@ -288,20 +415,22 @@ function update() {
     let side = Math.floor(Math.random() * 4);
     let ex = side===0 ? -20 : side===1 ? cv.width+20 : Math.random()*cv.width;
     let ey = side===2 ? -20 : side===3 ? cv.height+20 : Math.random()*cv.height;
-    enemies.push({ x: ex, y: ey, hp: 1 + Math.floor(time/15), speed: 0.8 + Math.random()*0.5 });
+    spawnEnemyAt(ex, ey);
   }
 
   // Update Enemies
   for (let i = enemies.length - 1; i >= 0; i--) {
     let e = enemies[i];
     let ang = Math.atan2(py - e.y, px - e.x);
+    if (e.type === 'flanker') ang += Math.sin(frame * 0.062 + e.phase) * 0.52;
     e.x += Math.cos(ang) * e.speed;
     e.y += Math.sin(ang) * e.speed;
 
     // Hit by Weapon?
     let hit = false;
+    let wHit = weaponVsEnemyR(e);
     for (let w of weapons) {
-      if (Math.hypot(w.y - e.y, w.x - e.x) < 15) {
+      if (Math.hypot(w.y - e.y, w.x - e.x) < wHit) {
         e.hp--; hit = true;
         spawnParticle(e.x, e.y, C_WPN, 2);
         break; // Only take 1 hit per frame
@@ -314,47 +443,67 @@ function update() {
     }
 
     if (e.hp <= 0) {
-      score += 10;
-      spawnParticle(e.x, e.y, C_ENM, 5);
-      if (Math.random() < 0.6) gems.push({ x: e.x, y: e.y }); // Drop XP
+      score += e.type === 'tank' ? 28 : e.type === 'swarmer' ? 7 : e.type === 'flanker' ? 14 : 10;
+      spawnParticle(e.x, e.y, C_ENM, e.type === 'tank' ? 8 : 5);
+      if (Math.random() < 0.58) pickups.push({ x: e.x, y: e.y, kind: 'xp' });
+      let heartChance = hp < maxHp * 0.9 ? 0.11 : 0.042;
+      if (e.type === 'tank') heartChance += 0.06;
+      if (Math.random() < heartChance) {
+        pickups.push({ x: e.x + (Math.random() - 0.5) * 14, y: e.y + (Math.random() - 0.5) * 14, kind: 'heart' });
+      }
       enemies.splice(i, 1);
       continue;
     }
 
     // Hit Player?
-    if (Math.hypot(py - e.y, px - e.x) < 12) {
-      hp -= 1;
-      spawnParticle(px, py, C_ENM, 1);
-      if (hp <= 0) {
-        state = 'OVER';
-        SFX.die();
-        queueVoidSurvivorScore(score);
-      } else if (hurtSfxCd === 0) {
-        hurtSfxCd = 10;
-        SFX.hurt();
+    if (Math.hypot(py - e.y, px - e.x) < enemyTouchR(e)) {
+      if (iframes <= 0) {
+        hp -= 1;
+        spawnParticle(px, py, C_ENM, 1);
+        if (hp <= 0) {
+          state = 'OVER';
+          SFX.die();
+          queueVoidSurvivorScore(score);
+        } else {
+          if (hurtSfxCd === 0) {
+            hurtSfxCd = 10;
+            SFX.hurt();
+          }
+          iframes = 44;
+        }
       }
     }
   }
 
-  // Update Gems
-  for (let i = gems.length - 1; i >= 0; i--) {
-    let g = gems[i];
+  // Pickups (XP gems + hearts)
+  for (let i = pickups.length - 1; i >= 0; i--) {
+    let g = pickups[i];
     let dist = Math.hypot(py - g.y, px - g.x);
-    if (dist < 60) { // Magnet radius
-      let ang = Math.atan2(py - g.y, px - g.x);
-      g.x += Math.cos(ang) * 4;
-      g.y += Math.sin(ang) * 4;
+    if (dist < 62) {
+      let mang = Math.atan2(py - g.y, px - g.x);
+      g.x += Math.cos(mang) * 4.2;
+      g.y += Math.sin(mang) * 4.2;
     }
-    if (dist < 15) { // Collect
-      xp++; score += 5;
-      gems.splice(i, 1);
-      SFX.gem();
-      if (xp >= nextXp) {
-        level++; xp = 0; nextXp = Math.floor(nextXp * 1.5);
-        hp = Math.min(maxHp, hp + 20); // Heal on level up
-        spawnParticle(px, py, C_PLY, 20);
-        SFX.level();
+    if (dist < 15) {
+      if (g.kind === 'xp') {
+        xp++;
+        score += 5;
+        SFX.gem();
+        if (xp >= nextXp) {
+          level++;
+          xp = 0;
+          nextXp = Math.floor(nextXp * 1.5);
+          hp = Math.min(maxHp, hp + 20);
+          spawnParticle(px, py, C_PLY, 20);
+          SFX.level();
+        }
+      } else {
+        hp = Math.min(maxHp, hp + 14);
+        score += 3;
+        SFX.heal();
+        spawnParticle(px, py, C_HEART, 6);
       }
+      pickups.splice(i, 1);
     }
   }
 
@@ -379,25 +528,10 @@ function draw() {
     ctx.fillRect(0, Math.random()*cv.height, cv.width, 10);
   }
 
-  // Draw Gems
-  ctx.shadowBlur = 10;
-  ctx.shadowColor = C_EXP;
-  ctx.fillStyle = C_EXP;
-  for (let g of gems) {
-    ctx.beginPath(); ctx.arc(g.x, g.y, 3, 0, Math.PI*2); ctx.fill();
-  }
+  for (let pu of pickups) drawPickup(pu);
 
-  // Draw Enemies
-  ctx.shadowColor = C_ENM;
-  ctx.fillStyle = C_ENM;
-  for (let e of enemies) {
-    ctx.beginPath();
-    let ang = Math.atan2(py - e.y, px - e.x);
-    ctx.moveTo(e.x + Math.cos(ang)*8, e.y + Math.sin(ang)*8);
-    ctx.lineTo(e.x + Math.cos(ang+2.5)*8, e.y + Math.sin(ang+2.5)*8);
-    ctx.lineTo(e.x + Math.cos(ang-2.5)*8, e.y + Math.sin(ang-2.5)*8);
-    ctx.fill();
-  }
+  ctx.shadowBlur = 8;
+  for (let e of enemies) drawEnemy(e);
 
   // Draw Particles
   ctx.shadowBlur = 5;
@@ -408,16 +542,13 @@ function draw() {
   }
 
   if (state !== 'TITLE') {
-    drawPlayerShip(ctx, px, py, pFace);
-    // Draw Weapons (shard orbiters)
-    let wpnCount = Math.min(level, 8);
-    let orbitRadius = 40 + Math.min(level * 2, 40);
-    let wpnSpeed = time * 3;
-    for (let i = 0; i < wpnCount; i++) {
-      let ang = (wpnSpeed + (i * 360 / wpnCount)) * Math.PI / 180;
-      let wx = px + Math.cos(ang) * orbitRadius;
-      let wy = py + Math.sin(ang) * orbitRadius;
-      let shard = ang + frame * 0.08;
+    let plyBlink = iframes === 0 || ((frame >> 2) & 1) === 0;
+    drawPlayerShip(ctx, px, py, pFace, plyBlink);
+    let shardSpin = 0.082 + level * 0.0045 + Math.min(time, 100) * 0.0004;
+    for (let i = 0; i < weaponRender.length; i++) {
+      let wr = weaponRender[i];
+      let wx = wr.x, wy = wr.y;
+      let shard = wr.ang + frame * shardSpin;
       ctx.save();
       ctx.translate(wx, wy);
       ctx.rotate(shard);
@@ -457,6 +588,13 @@ function draw() {
     ctx.textAlign = 'right';
     ctx.fillText(score, cv.width-10, 40);
     ctx.textAlign = 'left';
+    if (tipTimer > 0) {
+      ctx.fillStyle = `rgba(200,220,255,${0.55 * (tipTimer / 480)})`;
+      ctx.font = '7px "Press Start 2P"';
+      ctx.textAlign = 'center';
+      ctx.fillText('MAGENTA=XP  GREEN=HEAL  LEVEL=+20HP', cv.width / 2, cv.height - 10);
+      ctx.textAlign = 'left';
+    }
   } else if (state === 'TITLE') {
     ctx.fillStyle = C_PLY; ctx.textAlign = 'center';
     ctx.shadowColor = C_PLY; ctx.shadowBlur = 15;

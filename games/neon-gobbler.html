@@ -274,10 +274,11 @@ class Entity {
           this.vx = this.nextVx; this.vy = this.nextVy;
         }
       }
-      // Stop if hitting a wall
+      // Stop if current velocity runs into a wall (Pac also blocks ghost gate 4)
       let currR = r + this.vy; let currC = c + this.vx;
       if (currC < 0) currC = COLS - 1; if (currC >= COLS) currC = 0;
-      if (map[currR] && (map[currR][currC] === 1 || map[currR][currC] === 4)) {
+      const ahead = map[currR] && map[currR][currC];
+      if (ahead === 1 || (!this.isGhost && ahead === 4)) {
         this.vx = 0; this.vy = 0;
       }
     }
@@ -295,6 +296,10 @@ class Entity {
       this.y = py;
       this.vx = 0;
       this.vy = 0;
+      // Rewind can leave us between tile centers with vx=vy=0; ghost AI only runs when
+      // aligned → permanent freeze. Snap to grid so next frame can pick a direction.
+      this.x = Math.round(this.x / TS) * TS;
+      this.y = Math.round(this.y / TS) * TS;
     }
   }
 }

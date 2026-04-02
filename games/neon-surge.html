@@ -361,17 +361,21 @@ function update() {
     });
 
     if (nearest) {
-      const angle = Math.atan2(nearest.y - player.y, nearest.x - player.x);
+      const moving = len > 0;
+      const aimErr = moving ? rng(-0.09, 0.09) : rng(-0.32, 0.32);
+      const angle = Math.atan2(nearest.y - player.y, nearest.x - player.x) + aimErr;
       const spread = player.powerLevel * 0.25;
       const count = player.powerLevel + 1;
 
       for (let i = 0; i < count; i++) {
         const offset = (i - (count - 1) / 2) * spread;
+        const shotJitter = rng(-0.055, 0.055);
+        const a = angle + offset + shotJitter;
         bullets.push({
           x: player.x,
           y: player.y,
-          vx: Math.cos(angle + offset) * 9,
-          vy: Math.sin(angle + offset) * 9,
+          vx: Math.cos(a) * 9,
+          vy: Math.sin(a) * 9,
           life: 38,
           color: player.powerLevel >= 2 ? COL.green : COL.pink
         });
@@ -760,9 +764,12 @@ function drawGameOver() {
   cx.shadowBlur = 28;
   cx.fillStyle = COL.red;
   setFont(34);
-  cx.fillText('SURGE ENDED', W / 2, 240);
+  cx.fillText('SURGE ENDED', W / 2, 228);
 
   cx.shadowBlur = 0;
+  cx.fillStyle = '#aab8cc';
+  setFont(9);
+  cx.fillText('NO LIVES LEFT', W / 2, 262);
   cx.fillStyle = COL.white;
   setFont(14);
   cx.fillText('SCORE ' + score, W / 2, 300);
