@@ -95,15 +95,20 @@ const SFX={
   oneup:()=>{[523,659,784,1046].forEach((f,i)=>setTimeout(()=>snd(f,.09,'square',.055),i*85))},
 };
 
-// ─── Level 1 Background ───
-const L1_BG={
-  img:Object.assign(new Image(),{src:'neon-runner-background-level-1.jpg'}),
-  loaded:false,
-  darkenAlpha:.34,
-  zoom:1.25,       // >1 crops in so panning is visible
-  panStrength:.85, // 0..1 how much of the extra width to use
+// ─── Level Backgrounds (parallax) ───
+function mkLevelBg(src,{darkenAlpha=.34,zoom=1.25,panStrength=.85}={}){
+  const bg={
+    img:Object.assign(new Image(),{src}),
+    loaded:false,
+    darkenAlpha,zoom,panStrength,
+  };
+  bg.img.addEventListener('load',()=>{bg.loaded=true});
+  return bg;
+}
+const LEVEL_BG={
+  0:mkLevelBg('neon-runner-background-level-1.jpg',{darkenAlpha:.34,zoom:1.25,panStrength:.85}),
+  1:mkLevelBg('neon-runner-background-level-2.jpg',{darkenAlpha:.34,zoom:1.25,panStrength:.85}),
 };
-L1_BG.img.addEventListener('load',()=>{L1_BG.loaded=true});
 
 // ─── Colors / Themes ───
 const THEMES={
@@ -1220,21 +1225,22 @@ function draw(){
   if(state==='title'){drawTitle();C.restore();return}
   if(state==='select'){drawSelect();C.restore();return}
 
-  // Level 1 background image (parallax pan)
-  if(levelIdx===0&&L1_BG.loaded){
-    const img=L1_BG.img;
+  // Per-level background image (parallax pan)
+  const bg=LEVEL_BG[levelIdx];
+  if(bg&&bg.loaded){
+    const img=bg.img;
     const ar=GW/GH,iar=img.width/img.height;
     let sw,sh;
     if(iar>=ar){sh=img.height;sw=sh*ar}else{sw=img.width;sh=sw/ar}
     // Crop in a bit so there is always extra width to pan across.
-    sw/=L1_BG.zoom;sh/=L1_BG.zoom;
+    sw/=bg.zoom;sh/=bg.zoom;
     const extraX=Math.max(0,img.width-sw);
     const px=Math.max(0,Math.min(1,(P.x)/(Math.max(1,GW-P.w))));
-    const target=(extraX/2)+((px-.5)*extraX*L1_BG.panStrength);
+    const target=(extraX/2)+((px-.5)*extraX*bg.panStrength);
     const sx=Math.max(0,Math.min(extraX,target));
     const sy=(img.height-sh)/2;
     C.drawImage(img,sx,sy,sw,sh,0,0,GW,GH);
-    C.fillStyle=`rgba(0,0,0,${L1_BG.darkenAlpha})`;
+    C.fillStyle=`rgba(0,0,0,${bg.darkenAlpha})`;
     C.fillRect(0,0,GW,GH);
   }
 
