@@ -507,6 +507,7 @@
       els.insH.value=rect?(obj.h??''):'';
       els.rawJson.value=JSON.stringify(obj,null,2);
       buildTypeSpecificFields(ref);
+      draw();
     }
 
     function applyInspectorToSelection(){
@@ -523,6 +524,7 @@
       }
       els.rawJson.value=JSON.stringify(obj,null,2);
       buildTypeSpecificFields(ref);
+      draw();
     }
 
     function applyRawJson(){
@@ -534,6 +536,7 @@
         Object.keys(ref.obj).forEach(k=>delete ref.obj[k]);
         Object.assign(ref.obj,parsed);
         syncInspectorFromSelection();
+        draw();
       }catch(e){
         alert('Invalid JSON: '+e.message);
       }
@@ -660,14 +663,40 @@
         return;
       }
 
-      // helpers
+      // helpers — coerce w/h so JSON strings / missing values don't break sizing (common for ladders)
+      const normRect=(r)=>{
+        const x=Number(r.x)||0,y=Number(r.y)||0;
+        const w=Math.max(1,Number(r.w)||0),h=Math.max(1,Number(r.h)||0);
+        return {x,y,w,h};
+      };
       const drawRect=(r,col,fill=true)=>{
+        const R=normRect(r);
         C.save();
         C.strokeStyle=col;
         C.lineWidth=2;
-        if(fill){C.fillStyle=col;C.globalAlpha=.18;C.fillRect(r.x,r.y,r.w,r.h);C.globalAlpha=1}
-        C.strokeRect(r.x+.5,r.y+.5,r.w,r.h);
+        if(fill){C.fillStyle=col;C.globalAlpha=.18;C.fillRect(R.x,R.y,R.w,R.h);C.globalAlpha=1}
+        C.strokeRect(R.x+.5,R.y+.5,R.w,R.h);
         C.restore();
+      };
+      const drawPlatform=(p)=>{
+        const R=normRect(p);
+        if((p.type||'').toLowerCase()==='ladder'){
+          C.save();
+          C.strokeStyle='#00e5ff';
+          C.fillStyle='rgba(0,229,255,.12)';
+          C.lineWidth=2;
+          C.fillRect(R.x,R.y,R.w,R.h);
+          C.strokeRect(R.x+.5,R.y+.5,R.w,R.h);
+          const step=12;
+          for(let yy=R.y+step;yy<R.y+R.h-step;yy+=step){
+            C.globalAlpha=.55;
+            C.beginPath();C.moveTo(R.x+2,yy);C.lineTo(R.x+R.w-2,yy);C.stroke();
+          }
+          C.globalAlpha=1;
+          C.restore();
+        }else{
+          drawRect(p,'#00e5ff');
+        }
       };
       const drawPoint=(p,col,label)=>{
         C.save();
@@ -681,7 +710,7 @@
       };
 
       // platforms/hazards/etc
-      (lv.platforms||[]).forEach((p,i)=>drawRect(p,'#00e5ff'));
+      (lv.platforms||[]).forEach((p,i)=>drawPlatform(p));
       (lv.hazards||[]).forEach((h,i)=>{
         if(h.type==='fireball') drawPoint({x:h.x,y:h.y},'#ff2244','fireball');
         else drawRect(h,'#ff2244');
@@ -697,7 +726,8 @@
       const ref=getSelectedRef();
       if(ref){
         if(ref.rect){
-          drawRect(ref.obj,'#ffffff',false);
+          const R=normRect(ref.obj);
+          C.save();C.strokeStyle='#ffffff';C.lineWidth=2;C.strokeRect(R.x+.5,R.y+.5,R.w,R.h);C.restore();
         }else{
           drawPoint(ref.obj,'#ffffff',ref.kind);
         }
@@ -713,7 +743,11 @@
 
     function hitTestAll(mx,my){
       const lv=current();
-      const inRect=(r)=>mx>=r.x&&mx<=r.x+r.w&&my>=r.y&&my<=r.y+r.h;
+      const inRect=(r)=>{
+        const x=Number(r.x)||0,y=Number(r.y)||0;
+        const w=Math.max(1,Number(r.w)||0),h=Math.max(1,Number(r.h)||0);
+        return mx>=x&&mx<=x+w&&my>=y&&my<=y+h;
+      };
 
       // priority: points first (spawn/exit), then smaller objects, then platforms
       const near=(p)=>Math.hypot(mx-p.x,my-p.y)<=10;
