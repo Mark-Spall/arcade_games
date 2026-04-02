@@ -105,6 +105,19 @@ function mkLevelBg(src,{darkenAlpha=.34,zoom=1.25,panStrength=.85}={}){
   bg.img.addEventListener('load',()=>{bg.loaded=true});
   return bg;
 }
+const BG_CACHE={};
+function getBgFromLevel(lv,levelIdx){
+  const cfg=lv&&lv.background;
+  if(cfg&&typeof cfg==='object'&&typeof cfg.src==='string'&&cfg.src.trim()){
+    const src=cfg.src.trim();
+    const bg=BG_CACHE[src]||(BG_CACHE[src]=mkLevelBg(src,{}));
+    if(typeof cfg.darkenAlpha==='number')bg.darkenAlpha=cfg.darkenAlpha;
+    if(typeof cfg.zoom==='number')bg.zoom=cfg.zoom;
+    if(typeof cfg.panStrength==='number')bg.panStrength=cfg.panStrength;
+    return bg;
+  }
+  return LEVEL_BG[levelIdx];
+}
 const LEVEL_BG={
   0:mkLevelBg('neon-runner-background-level-1.jpg',{darkenAlpha:.34,zoom:1.25,panStrength:.85}),
   1:mkLevelBg('neon-runner-background-level-2.jpg',{darkenAlpha:.34,zoom:1.25,panStrength:.85}),
@@ -769,12 +782,15 @@ async function loadExternalLevels(){
   try{
     // Editor playtest override (doesn't require saving to disk)
     const qs=new URLSearchParams(location.search);
-    if(qs.get('editor')==='1'){
+    const editorMode=qs.get('editor')==='1';
+    if(editorMode){
       const raw=localStorage.getItem('neon-runner.editorLevels');
       if(raw){
         const parsed=JSON.parse(raw);
         if(Array.isArray(parsed)&&parsed.length>0){
           LEVELS=parsed;
+          // In editor playtest, temporarily unlock everything (do not persist).
+          if(typeof levelsUnlocked!=='undefined')levelsUnlocked=LEVELS.length;
           return;
         }
       }
@@ -784,6 +800,7 @@ async function loadExternalLevels(){
     const data=await res.json();
     if(!Array.isArray(data)||data.length===0)throw new Error('Invalid levels JSON');
     LEVELS=data;
+    if(editorMode&&typeof levelsUnlocked!=='undefined')levelsUnlocked=LEVELS.length;
   }catch(_){
     LEVELS=EMBEDDED_LEVELS;
   }
@@ -1303,7 +1320,7 @@ function draw(){
   if(state==='select'){drawSelect();C.restore();return}
 
   // Per-level background image (parallax pan)
-  const bg=LEVEL_BG[levelIdx];
+  const bg=getBgFromLevel(LEVELS[levelIdx],levelIdx);
   if(bg&&bg.loaded){
     const img=bg.img;
     const ar=GW/GH,iar=img.width/img.height;
