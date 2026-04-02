@@ -108,6 +108,8 @@ function mkLevelBg(src,{darkenAlpha=.34,zoom=1.25,panStrength=.85}={}){
 const LEVEL_BG={
   0:mkLevelBg('neon-runner-background-level-1.jpg',{darkenAlpha:.34,zoom:1.25,panStrength:.85}),
   1:mkLevelBg('neon-runner-background-level-2.jpg',{darkenAlpha:.34,zoom:1.25,panStrength:.85}),
+  2:mkLevelBg('neon-runner-background-level-3.jpg',{darkenAlpha:.34,zoom:1.25,panStrength:.85}),
+  3:mkLevelBg('neon-runner-background-level-4.jpg',{darkenAlpha:.38,zoom:1.25,panStrength:.85}),
 };
 
 // ─── Colors / Themes ───
@@ -773,6 +775,7 @@ let cam={x:0,y:0};
 
 // ─── Progress persistence ───
 const LS_KEY_UNLOCKED='neon-runner.levelsUnlocked';
+const LS_KEY_UNLOCKED_LEGACY=['levelsUnlocked','neonRunner.levelsUnlocked','neon-runner_levelsUnlocked'];
 function clampUnlocked(n){
   const v=Math.floor(Number(n));
   if(!Number.isFinite(v))return 1;
@@ -780,7 +783,15 @@ function clampUnlocked(n){
 }
 function loadProgress(){
   try{
-    levelsUnlocked=clampUnlocked(localStorage.getItem(LS_KEY_UNLOCKED));
+    const primary=localStorage.getItem(LS_KEY_UNLOCKED);
+    if(primary!=null){
+      levelsUnlocked=clampUnlocked(primary);
+      return;
+    }
+    for(const k of LS_KEY_UNLOCKED_LEGACY){
+      const v=localStorage.getItem(k);
+      if(v!=null){levelsUnlocked=clampUnlocked(v);break;}
+    }
   }catch(_){}
 }
 function saveProgress(){
@@ -789,6 +800,10 @@ function saveProgress(){
   }catch(_){}
 }
 loadProgress();
+
+// Best-effort save on page close/background
+window.addEventListener('beforeunload',saveProgress);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')saveProgress()});
 
 // Player
 const P={x:0,y:0,vx:0,vy:0,w:14,h:22,
