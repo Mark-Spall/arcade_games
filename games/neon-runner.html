@@ -129,9 +129,11 @@ const THEMES={
 };
 
 // ═══════════════════════════════════════════════════
-//  LEVEL DATA — Add new levels to this array!
+//  LEVEL DATA
+//  - Authoring source of truth: ../levels/neon-runner-levels.json
+//  - Fallback: embedded levels below (kept for offline / broken fetch)
 // ═══════════════════════════════════════════════════
-const LEVELS=[
+const EMBEDDED_LEVELS=[
 // ── LEVEL 1: First Steps ──
 {
   name:"FIRST STEPS",theme:"neon",gravity:.45,timeLimit:0,
@@ -759,7 +761,33 @@ const LEVELS=[
   ],
   doors:[{x:300,y:-2,w:24,h:32,keyRequired:"blue"}],
 },
-]; // end LEVELS
+]; // end EMBEDDED_LEVELS
+
+let LEVELS=EMBEDDED_LEVELS;
+
+async function loadExternalLevels(){
+  try{
+    // Editor playtest override (doesn't require saving to disk)
+    const qs=new URLSearchParams(location.search);
+    if(qs.get('editor')==='1'){
+      const raw=localStorage.getItem('neon-runner.editorLevels');
+      if(raw){
+        const parsed=JSON.parse(raw);
+        if(Array.isArray(parsed)&&parsed.length>0){
+          LEVELS=parsed;
+          return;
+        }
+      }
+    }
+    const res=await fetch('../levels/neon-runner-levels.json',{cache:'no-store'});
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    const data=await res.json();
+    if(!Array.isArray(data)||data.length===0)throw new Error('Invalid levels JSON');
+    LEVELS=data;
+  }catch(_){
+    LEVELS=EMBEDDED_LEVELS;
+  }
+}
 
 // ═══════════════════════════════════════════════════
 //  ENGINE
@@ -804,6 +832,14 @@ loadProgress();
 // Best-effort save on page close/background
 window.addEventListener('beforeunload',saveProgress);
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')saveProgress()});
+
+// Replace embedded levels with external JSON when available.
+// (Editor writes to ../levels/neon-runner-levels.json)
+loadExternalLevels().then(()=>{
+  // Re-clamp after LEVELS length is known from external JSON.
+  levelsUnlocked=clampUnlocked(levelsUnlocked);
+  if(levelIdx>=LEVELS.length)levelIdx=0;
+});
 
 // Player
 const P={x:0,y:0,vx:0,vy:0,w:14,h:22,

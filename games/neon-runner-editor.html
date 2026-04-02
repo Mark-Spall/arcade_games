@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Neon Runner — Level Editor</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=IBM+Plex+Mono:wght@400;600&display=swap');
+    :root{
+      --bg:#070713;
+      --panel:#0c0c1f;
+      --panel2:#10102a;
+      --line:rgba(255,255,255,.08);
+      --text:#cfe7ff;
+      --muted:rgba(255,255,255,.5);
+      --acc:#00e5ff;
+      --acc2:#ff00cc;
+      --good:#39ff14;
+      --warn:#ffcc00;
+      --bad:#ff2244;
+      --shadow:0 18px 60px rgba(0,0,0,.55);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      background:
+        radial-gradient(1200px 700px at 25% 10%, rgba(0,229,255,.08), transparent 60%),
+        radial-gradient(900px 600px at 80% 20%, rgba(255,0,204,.07), transparent 55%),
+        radial-gradient(1000px 900px at 50% 85%, rgba(57,255,20,.05), transparent 55%),
+        var(--bg);
+      color:var(--text);
+      height:100vh;
+      overflow:hidden;
+    }
+    .app{
+      height:100%;
+      display:grid;
+      grid-template-columns: 320px 1fr 360px;
+      gap:14px;
+      padding:14px;
+    }
+    .panel{
+      background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+      border:1px solid var(--line);
+      border-radius:14px;
+      box-shadow:var(--shadow);
+      overflow:hidden;
+      display:flex;
+      flex-direction:column;
+      min-height:0;
+    }
+    .panel header{
+      padding:12px 12px 10px;
+      border-bottom:1px solid var(--line);
+      background:linear-gradient(180deg, rgba(0,0,0,.35), transparent);
+      display:flex;
+      gap:10px;
+      align-items:center;
+      justify-content:space-between;
+    }
+    .title{
+      font-family:"Press Start 2P", monospace;
+      font-size:12px;
+      letter-spacing:1px;
+      color:var(--acc);
+      text-shadow:0 0 14px rgba(0,229,255,.35);
+    }
+    .sub{
+      font-size:12px;
+      color:var(--muted);
+    }
+    .content{padding:12px; overflow:auto; min-height:0}
+    .row{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+    label{font-size:12px; color:var(--muted)}
+    select,input,textarea,button{
+      font:inherit;
+      border-radius:10px;
+      border:1px solid var(--line);
+      background:rgba(0,0,0,.25);
+      color:var(--text);
+      padding:9px 10px;
+      outline:none;
+    }
+    textarea{width:100%; min-height:160px; resize:vertical}
+    button{
+      cursor:pointer;
+      background:linear-gradient(180deg, rgba(0,229,255,.14), rgba(0,229,255,.06));
+      border-color:rgba(0,229,255,.22);
+    }
+    button.secondary{
+      background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
+      border-color:var(--line);
+    }
+    button.danger{
+      background:linear-gradient(180deg, rgba(255,34,68,.16), rgba(255,34,68,.07));
+      border-color:rgba(255,34,68,.25);
+    }
+    button:disabled{opacity:.45; cursor:not-allowed}
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:8px 10px;
+      border:1px solid var(--line);
+      border-radius:999px;
+      background:rgba(255,255,255,.03);
+      font-size:12px;
+      color:var(--muted);
+    }
+    .kv{display:grid; grid-template-columns:110px 1fr; gap:8px; align-items:center}
+    .kv input,.kv select{width:100%}
+    .palette{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:8px;
+    }
+    .tool{
+      padding:10px;
+      border-radius:12px;
+      border:1px solid var(--line);
+      background:rgba(255,255,255,.03);
+      cursor:pointer;
+      user-select:none;
+    }
+    .tool b{display:block; color:var(--text); font-size:12px}
+    .tool small{display:block; color:var(--muted); font-size:11px; margin-top:4px; line-height:1.25}
+    .tool.active{
+      border-color:rgba(0,229,255,.35);
+      box-shadow:0 0 0 2px rgba(0,229,255,.12) inset, 0 0 30px rgba(0,229,255,.12);
+    }
+    .canvasWrap{
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:12px;
+      min-height:0;
+    }
+    canvas{
+      width:min(100%, 900px);
+      aspect-ratio: 640 / 400;
+      image-rendering:pixelated;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.10);
+      box-shadow:0 0 0 1px rgba(0,0,0,.55) inset, 0 25px 90px rgba(0,0,0,.55);
+      background:#050512;
+    }
+    .hint{
+      font-size:12px;
+      color:var(--muted);
+      line-height:1.4;
+    }
+    .hr{height:1px; background:var(--line); margin:12px 0}
+    .ok{color:var(--good)}
+    .warn{color:var(--warn)}
+    .bad{color:var(--bad)}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- LEFT: project/levels -->
+    <section class="panel">
+      <header>
+        <div>
+          <div class="title">NEON RUNNER</div>
+          <div class="sub">Level editor</div>
+        </div>
+        <span class="pill" id="statusPill">loading…</span>
+      </header>
+      <div class="content">
+        <div class="kv">
+          <label>Level</label>
+          <select id="levelSelect"></select>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button id="btnNew" class="secondary">New</button>
+          <button id="btnDup" class="secondary">Duplicate</button>
+          <button id="btnDel" class="danger">Delete</button>
+        </div>
+        <div class="hr"></div>
+        <div class="row">
+          <button id="btnReload" class="secondary">Reload JSON</button>
+          <button id="btnImport" class="secondary">Import…</button>
+          <button id="btnExport" class="secondary">Export</button>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button id="btnPickFile">Link to file…</button>
+          <button id="btnSave" disabled>Save</button>
+          <button id="btnSaveAs">Save As…</button>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button id="btnPlaytest">Playtest</button>
+          <span class="pill">Undo <b id="undoState" style="color:var(--text)">0</b></span>
+          <span class="pill">Redo <b id="redoState" style="color:var(--text)">0</b></span>
+        </div>
+        <div class="hr"></div>
+        <div class="hint">
+          <div><span class="ok">Drag</span> to move • <span class="ok">Shift+Drag</span> to resize</div>
+          <div><span class="ok">Del</span> delete selected • <span class="ok">G</span> toggle grid snap • <span class="ok">Alt+Click</span> cycle overlaps</div>
+          <div><span class="ok">Ctrl+Z</span> undo • <span class="ok">Ctrl+Y</span> redo • <span class="ok">Tab</span> cycle overlaps</div>
+          <div class="sub" style="margin-top:8px">Source of truth: <code>levels/neon-runner-levels.json</code></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CENTER: canvas -->
+    <section class="panel">
+      <header>
+        <div class="title">CANVAS</div>
+        <div class="row">
+          <span class="pill">Snap <b id="snapState" style="color:var(--text)">ON</b></span>
+          <span class="pill">Tool <b id="toolState" style="color:var(--text)">SELECT</b></span>
+        </div>
+      </header>
+      <div class="canvasWrap">
+        <canvas id="cv" width="640" height="400"></canvas>
+      </div>
+    </section>
+
+    <!-- RIGHT: palette + inspector -->
+    <section class="panel">
+      <header>
+        <div class="title">PALETTE</div>
+        <div class="sub">place + edit</div>
+      </header>
+      <div class="content">
+        <div class="palette" id="palette"></div>
+        <div class="hr"></div>
+        <div class="title" style="font-size:10px;color:var(--acc2)">INSPECTOR</div>
+        <div class="kv" style="margin-top:10px">
+          <label>Kind</label>
+          <select id="insKind">
+            <option value="">(none)</option>
+          </select>
+        </div>
+        <div class="kv" style="margin-top:10px">
+          <label>Type</label>
+          <input id="insType" placeholder="e.g. solid / spikes / coin" />
+        </div>
+        <div id="typeFields"></div>
+        <div class="kv" style="margin-top:10px">
+          <label>X</label><input id="insX" type="number" step="1" />
+          <label>Y</label><input id="insY" type="number" step="1" />
+          <label>W</label><input id="insW" type="number" step="1" />
+          <label>H</label><input id="insH" type="number" step="1" />
+        </div>
+        <div class="hr"></div>
+        <label>Raw JSON (selected)</label>
+        <textarea id="rawJson" spellcheck="false"></textarea>
+        <div class="row" style="margin-top:10px">
+          <button id="btnApplyRaw" class="secondary">Apply</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const GW=640,GH=400;
+    const LEVELS_URL='../levels/neon-runner-levels.json';
+    const els={
+      statusPill:document.getElementById('statusPill'),
+      levelSelect:document.getElementById('levelSelect'),
+      btnNew:document.getElementById('btnNew'),
+      btnDup:document.getElementById('btnDup'),
+      btnDel:document.getElementById('btnDel'),
+      btnReload:document.getElementById('btnReload'),
+      btnImport:document.getElementById('btnImport'),
+      btnExport:document.getElementById('btnExport'),
+      btnPickFile:document.getElementById('btnPickFile'),
+      btnSave:document.getElementById('btnSave'),
+      btnSaveAs:document.getElementById('btnSaveAs'),
+      btnPlaytest:document.getElementById('btnPlaytest'),
+      undoState:document.getElementById('undoState'),
+      redoState:document.getElementById('redoState'),
+      cv:document.getElementById('cv'),
+      snapState:document.getElementById('snapState'),
+      toolState:document.getElementById('toolState'),
+      palette:document.getElementById('palette'),
+      insKind:document.getElementById('insKind'),
+      insType:document.getElementById('insType'),
+      typeFields:document.getElementById('typeFields'),
+      insX:document.getElementById('insX'),
+      insY:document.getElementById('insY'),
+      insW:document.getElementById('insW'),
+      insH:document.getElementById('insH'),
+      rawJson:document.getElementById('rawJson'),
+      btnApplyRaw:document.getElementById('btnApplyRaw'),
+    };
+    const C=els.cv.getContext('2d');
+
+    const state={
+      levels:[],
+      idx:0,
+      tool:'select', // select or place:<kind>
+      placeKind:null,
+      snap:true,
+      grid:8,
+      selected:null, // {kind, index} or {kind:'playerStart'|'exit'}
+      drag:null,
+      fileHandle:null,
+      undo:[],
+      redo:[],
+      overlapCycle:null, // {mx,my, list:[sel], idx}
+    };
+
+    const paletteItems=[
+      {id:'select',name:'Select',desc:'Click to select/move/resize'},
+      {id:'platform',name:'Platform',desc:'solid / oneway / moving / crumble / ice / conveyor / bounce / ladder'},
+      {id:'hazard',name:'Hazard',desc:'spikes / fireball'},
+      {id:'collectible',name:'Collectible',desc:'coin / gem / key / 1up'},
+      {id:'enemy',name:'Enemy',desc:'walker / flyer'},
+      {id:'door',name:'Door',desc:'locked door (keyRequired)'},
+      {id:'playerStart',name:'Player Start',desc:'spawn point'},
+      {id:'exit',name:'Exit',desc:'level finish'},
+    ];
+
+    function setStatus(text, cls=''){
+      els.statusPill.textContent=text;
+      els.statusPill.className='pill '+cls;
+    }
+
+    function deepClone(o){return JSON.parse(JSON.stringify(o))}
+
+    function snap(v){return state.snap?Math.round(v/state.grid)*state.grid:v}
+    function clamp(v,min,max){return Math.max(min,Math.min(max,v))}
+
+    function updateUndoRedo(){
+      els.undoState.textContent=String(state.undo.length);
+      els.redoState.textContent=String(state.redo.length);
+    }
+
+    function pushUndo(reason='edit'){
+      state.undo.push(JSON.stringify(state.levels));
+      if(state.undo.length>100)state.undo.shift();
+      state.redo.length=0;
+      updateUndoRedo();
+      setStatus(reason,'ok');
+    }
+    function doUndo(){
+      if(state.undo.length===0)return;
+      state.redo.push(JSON.stringify(state.levels));
+      const snap=state.undo.pop();
+      state.levels=JSON.parse(snap);
+      state.idx=clamp(state.idx,0,state.levels.length-1);
+      fillLevelSelect();
+      state.selected=null;
+      state.drag=null;
+      state.overlapCycle=null;
+      updateUndoRedo();
+      syncInspectorFromSelection();
+      draw();
+      setStatus('undo','warn');
+    }
+    function doRedo(){
+      if(state.redo.length===0)return;
+      state.undo.push(JSON.stringify(state.levels));
+      const snap=state.redo.pop();
+      state.levels=JSON.parse(snap);
+      state.idx=clamp(state.idx,0,state.levels.length-1);
+      fillLevelSelect();
+      state.selected=null;
+      state.drag=null;
+      state.overlapCycle=null;
+      updateUndoRedo();
+      syncInspectorFromSelection();
+      draw();
+      setStatus('redo','warn');
+    }
+
+    function current(){return state.levels[state.idx]}
+
+    function fillLevelSelect(){
+      els.levelSelect.innerHTML='';
+      state.levels.forEach((lv,i)=>{
+        const opt=document.createElement('option');
+        opt.value=String(i);
+        opt.textContent=`${String(i+1).padStart(2,'0')}  ${lv.name}`;
+        els.levelSelect.appendChild(opt);
+      });
+      els.levelSelect.value=String(state.idx);
+    }
+
+    function defaultLevel(){
+      return {
+        name:"NEW LEVEL",
+        theme:"neon",
+        gravity:0.45,
+        timeLimit:0,
+        playerStart:{x:40,y:340},
+        exit:{x:590,y:56},
+        platforms:[],
+        hazards:[],
+        collectibles:[],
+        enemies:[],
+        doors:[],
+      };
+    }
+
+    function makePalette(){
+      els.palette.innerHTML='';
+      for(const item of paletteItems){
+        const div=document.createElement('div');
+        div.className='tool'+(item.id==='select'?' active':'');
+        div.dataset.id=item.id;
+        div.innerHTML=`<b>${item.name}</b><small>${item.desc}</small>`;
+        div.addEventListener('click',()=>setTool(item.id));
+        els.palette.appendChild(div);
+      }
+    }
+
+    function setTool(id){
+      state.tool=id==='select'?'select':('place:'+id);
+      state.placeKind=id==='select'?null:id;
+      els.toolState.textContent=id.toUpperCase();
+      [...els.palette.querySelectorAll('.tool')].forEach(t=>t.classList.toggle('active',t.dataset.id===id));
+    }
+
+    function rebuildInspectorKinds(){
+      els.insKind.innerHTML='<option value="">(none)</option>';
+      for(const k of ['platforms','hazards','collectibles','enemies','doors','playerStart','exit']){
+        const opt=document.createElement('option');
+        opt.value=k;
+        opt.textContent=k;
+        els.insKind.appendChild(opt);
+      }
+    }
+
+    function getSelectedRef(){
+      if(!state.selected)return null;
+      const lv=current();
+      if(state.selected.kind==='playerStart')return {kind:'playerStart', obj:lv.playerStart, rect:false};
+      if(state.selected.kind==='exit')return {kind:'exit', obj:lv.exit, rect:false};
+      const kind=state.selected.kind;
+      const arr=lv[kind];
+      if(!arr||!arr[state.selected.index])return null;
+      return {kind, obj:arr[state.selected.index], rect:true};
+    }
+
+    function syncInspectorFromSelection(){
+      const ref=getSelectedRef();
+      if(!ref){
+        els.insKind.value='';
+        els.insType.value='';
+        els.insX.value='';els.insY.value='';els.insW.value='';els.insH.value='';
+        els.rawJson.value='';
+        els.typeFields.innerHTML='';
+        return;
+      }
+      const {kind,obj,rect}=ref;
+      els.insKind.value=kind;
+      els.insType.value=obj.type||'';
+      els.insX.value=obj.x??'';
+      els.insY.value=obj.y??'';
+      els.insW.value=rect?(obj.w??''):'';
+      els.insH.value=rect?(obj.h??''):'';
+      els.rawJson.value=JSON.stringify(obj,null,2);
+      buildTypeSpecificFields(ref);
+    }
+
+    function applyInspectorToSelection(){
+      const ref=getSelectedRef();
+      if(!ref)return;
+      const {obj,rect}=ref;
+      pushUndo('edit');
+      if(els.insType.value.trim())obj.type=els.insType.value.trim();
+      if(els.insX.value!=='')obj.x=Number(els.insX.value);
+      if(els.insY.value!=='')obj.y=Number(els.insY.value);
+      if(rect){
+        if(els.insW.value!=='')obj.w=Math.max(1,Number(els.insW.value));
+        if(els.insH.value!=='')obj.h=Math.max(1,Number(els.insH.value));
+      }
+      els.rawJson.value=JSON.stringify(obj,null,2);
+      buildTypeSpecificFields(ref);
+    }
+
+    function applyRawJson(){
+      const ref=getSelectedRef();
+      if(!ref)return;
+      try{
+        pushUndo('apply json');
+        const parsed=JSON.parse(els.rawJson.value);
+        Object.keys(ref.obj).forEach(k=>delete ref.obj[k]);
+        Object.assign(ref.obj,parsed);
+        syncInspectorFromSelection();
+      }catch(e){
+        alert('Invalid JSON: '+e.message);
+      }
+    }
+
+    function ensureNumber(obj,key,def){ if(typeof obj[key]!=='number' || !Number.isFinite(obj[key])) obj[key]=def; }
+    function ensureString(obj,key,def){ if(typeof obj[key]!=='string' || !obj[key]) obj[key]=def; }
+
+    function buildTypeSpecificFields(ref){
+      const {kind,obj}=ref;
+      const type=(obj.type||'').toLowerCase();
+      const wrap=document.createElement('div');
+      wrap.className='kv';
+      wrap.style.marginTop='10px';
+
+      function addField(label,key,opts){
+        const l=document.createElement('label');
+        l.textContent=label;
+        let input;
+        if(opts?.select){
+          input=document.createElement('select');
+          for(const o of opts.select){
+            const opt=document.createElement('option');
+            opt.value=o.value; opt.textContent=o.label;
+            input.appendChild(opt);
+          }
+          input.value=String(obj[key]??opts.default??'');
+        }else{
+          input=document.createElement('input');
+          input.type=opts?.type||'number';
+          input.step=opts?.step??'1';
+          input.value=(obj[key]??opts?.default??'');
+        }
+        input.addEventListener('input',()=>{
+          pushUndo('edit');
+          if(opts?.type==='text' || opts?.select) obj[key]=input.value;
+          else obj[key]=Number(input.value);
+          els.rawJson.value=JSON.stringify(obj,null,2);
+          draw();
+        });
+        wrap.appendChild(l);
+        wrap.appendChild(input);
+      }
+
+      els.typeFields.innerHTML='';
+
+      if(kind==='platforms'){
+        if(type==='moving'){
+          ensureString(obj,'moveAxis','x');
+          ensureNumber(obj,'moveRange',80);
+          ensureNumber(obj,'moveSpeed',1.2);
+          addField('moveAxis','moveAxis',{select:[{value:'x',label:'x'},{value:'y',label:'y'}]});
+          addField('moveRange','moveRange',{step:'1'});
+          addField('moveSpeed','moveSpeed',{step:'0.1'});
+        }else if(type==='crumble'){
+          ensureNumber(obj,'crumbleDelay',0.5);
+          addField('crumbleDelay','crumbleDelay',{step:'0.05'});
+        }else if(type==='conveyor'){
+          ensureNumber(obj,'conveyorDir',1);
+          ensureNumber(obj,'conveyorSpeed',2);
+          addField('conveyorDir','conveyorDir',{select:[{value:'-1',label:'-1'},{value:'1',label:'1'}]});
+          addField('conveyorSpeed','conveyorSpeed',{step:'0.1'});
+        }else if(type==='bounce'){
+          ensureNumber(obj,'bouncePower',12);
+          addField('bouncePower','bouncePower',{step:'0.5'});
+        }
+      }else if(kind==='hazards'){
+        if(type==='fireball'){
+          ensureString(obj,'moveAxis','x');
+          ensureNumber(obj,'moveRange',60);
+          ensureNumber(obj,'moveSpeed',2.5);
+          addField('moveAxis','moveAxis',{select:[{value:'x',label:'x'},{value:'y',label:'y'}]});
+          addField('moveRange','moveRange',{step:'1'});
+          addField('moveSpeed','moveSpeed',{step:'0.1'});
+        }
+      }else if(kind==='collectibles'){
+        if(type==='gem'){
+          ensureNumber(obj,'points',500);
+          addField('points','points',{step:'10'});
+        }else if(type==='key'){
+          ensureString(obj,'id','red');
+          addField('id','id',{type:'text'});
+        }
+      }else if(kind==='enemies'){
+        if(type==='walker'){
+          ensureNumber(obj,'range',60);
+          addField('range','range',{step:'1'});
+        }else if(type==='flyer'){
+          ensureString(obj,'moveAxis','x');
+          ensureNumber(obj,'moveRange',50);
+          ensureNumber(obj,'moveSpeed',1.2);
+          addField('moveAxis','moveAxis',{select:[{value:'x',label:'x'},{value:'y',label:'y'}]});
+          addField('moveRange','moveRange',{step:'1'});
+          addField('moveSpeed','moveSpeed',{step:'0.1'});
+        }
+      }else if(kind==='doors'){
+        ensureString(obj,'keyRequired','red');
+        addField('keyRequired','keyRequired',{type:'text'});
+      }
+
+      if(wrap.childElementCount>0) els.typeFields.appendChild(wrap);
+    }
+
+    function draw(){
+      const lv=current();
+      C.clearRect(0,0,GW,GH);
+
+      // bg
+      C.fillStyle='#050515';
+      C.fillRect(0,0,GW,GH);
+
+      // grid
+      C.globalAlpha=.22;
+      C.strokeStyle='rgba(255,255,255,.08)';
+      C.lineWidth=1;
+      for(let x=0;x<=GW;x+=state.grid){C.beginPath();C.moveTo(x+.5,0);C.lineTo(x+.5,GH);C.stroke()}
+      for(let y=0;y<=GH;y+=state.grid){C.beginPath();C.moveTo(0,y+.5);C.lineTo(GW,y+.5);C.stroke()}
+      C.globalAlpha=1;
+
+      if(!lv){
+        C.fillStyle='#fff';
+        C.font='14px "IBM Plex Mono"';
+        C.fillText('No level loaded.',20,30);
+        return;
+      }
+
+      // helpers
+      const drawRect=(r,col,fill=true)=>{
+        C.save();
+        C.strokeStyle=col;
+        C.lineWidth=2;
+        if(fill){C.fillStyle=col;C.globalAlpha=.18;C.fillRect(r.x,r.y,r.w,r.h);C.globalAlpha=1}
+        C.strokeRect(r.x+.5,r.y+.5,r.w,r.h);
+        C.restore();
+      };
+      const drawPoint=(p,col,label)=>{
+        C.save();
+        C.fillStyle=col;C.shadowColor=col;C.shadowBlur=10;
+        C.beginPath();C.arc(p.x,p.y,6,0,Math.PI*2);C.fill();
+        C.shadowBlur=0;
+        C.fillStyle='rgba(255,255,255,.85)';
+        C.font='10px "IBM Plex Mono"';
+        C.fillText(label,p.x+10,p.y+4);
+        C.restore();
+      };
+
+      // platforms/hazards/etc
+      (lv.platforms||[]).forEach((p,i)=>drawRect(p,'#00e5ff'));
+      (lv.hazards||[]).forEach((h,i)=>{
+        if(h.type==='fireball') drawPoint({x:h.x,y:h.y},'#ff2244','fireball');
+        else drawRect(h,'#ff2244');
+      });
+      (lv.doors||[]).forEach((d,i)=>drawRect(d,'#ffcc00'));
+      (lv.enemies||[]).forEach((e,i)=>drawPoint({x:e.x,y:e.y},'#ff00cc',e.type||'enemy'));
+      (lv.collectibles||[]).forEach((c,i)=>drawPoint({x:c.x,y:c.y},'#39ff14',c.type||'item'));
+
+      drawPoint(lv.playerStart,'#39ff14','spawn');
+      drawPoint(lv.exit,'#00e5ff','exit');
+
+      // selection highlight
+      const ref=getSelectedRef();
+      if(ref){
+        if(ref.rect){
+          drawRect(ref.obj,'#ffffff',false);
+        }else{
+          drawPoint(ref.obj,'#ffffff',ref.kind);
+        }
+      }
+
+      // header text
+      C.save();
+      C.fillStyle='rgba(255,255,255,.85)';
+      C.font='12px "IBM Plex Mono"';
+      C.fillText(`${state.idx+1}. ${lv.name}   theme=${lv.theme}   gravity=${lv.gravity}   time=${lv.timeLimit}`,12,18);
+      C.restore();
+    }
+
+    function hitTestAll(mx,my){
+      const lv=current();
+      const inRect=(r)=>mx>=r.x&&mx<=r.x+r.w&&my>=r.y&&my<=r.y+r.h;
+
+      // priority: points first (spawn/exit), then smaller objects, then platforms
+      const near=(p)=>Math.hypot(mx-p.x,my-p.y)<=10;
+      const hits=[];
+      if(near(lv.playerStart))hits.push({kind:'playerStart'});
+      if(near(lv.exit))hits.push({kind:'exit'});
+
+      const kinds=['collectibles','enemies','hazards','doors','platforms'];
+      for(const k of kinds){
+        const arr=lv[k]||[];
+        for(let i=arr.length-1;i>=0;i--){
+          const o=arr[i];
+          if(k==='collectibles'||k==='enemies') { if(near(o)) hits.push({kind:k,index:i}); }
+          else if(k==='hazards' && o.type==='fireball') { if(near(o)) hits.push({kind:k,index:i}); }
+          else { if(inRect(o)) hits.push({kind:k,index:i}); }
+        }
+      }
+      return hits;
+    }
+
+    function selectAt(mx,my,{cycle=false}={}){
+      const hits=hitTestAll(mx,my);
+      if(hits.length===0){ state.selected=null; state.overlapCycle=null; return; }
+      if(cycle && state.overlapCycle && Math.abs(state.overlapCycle.mx-mx)<2 && Math.abs(state.overlapCycle.my-my)<2){
+        state.overlapCycle.idx=(state.overlapCycle.idx+1)%state.overlapCycle.list.length;
+        state.selected=state.overlapCycle.list[state.overlapCycle.idx];
+        return;
+      }
+      state.overlapCycle={mx,my,list:hits,idx:0};
+      state.selected=hits[0];
+    }
+
+    function placeAt(mx,my){
+      const lv=current();
+      const k=state.placeKind;
+      if(!k)return;
+      if(k==='playerStart'){lv.playerStart={x:snap(mx),y:snap(my)};state.selected={kind:'playerStart'};return;}
+      if(k==='exit'){lv.exit={x:snap(mx),y:snap(my)};state.selected={kind:'exit'};return;}
+
+      const defaultByKind={
+        platform:{x:snap(mx-30),y:snap(my-8),w:60,h:16,type:'solid'},
+        hazard:{x:snap(mx-40),y:snap(my-7),w:80,h:14,type:'spikes'},
+        door:{x:snap(mx-12),y:snap(my-16),w:24,h:32,keyRequired:'red'},
+        enemy:{x:snap(mx),y:snap(my),type:'walker',range:60},
+        collectible:{x:snap(mx),y:snap(my),type:'coin'},
+      };
+      const map={platform:'platforms',hazard:'hazards',door:'doors',enemy:'enemies',collectible:'collectibles'};
+      const arrName=map[k];
+      if(!arrName)return;
+      const obj=defaultByKind[k];
+      lv[arrName].push(obj);
+      state.selected={kind:arrName,index:lv[arrName].length-1};
+    }
+
+    function deleteSelection(){
+      if(!state.selected)return;
+      const lv=current();
+      const s=state.selected;
+      if(s.kind==='playerStart'||s.kind==='exit')return;
+      const arr=lv[s.kind];
+      if(!Array.isArray(arr))return;
+      pushUndo('delete');
+      arr.splice(s.index,1);
+      state.selected=null;
+      syncInspectorFromSelection();
+    }
+
+    function canvasToWorld(e){
+      const r=els.cv.getBoundingClientRect();
+      const mx=(e.clientX-r.left)/r.width*GW;
+      const my=(e.clientY-r.top)/r.height*GH;
+      return {mx,my};
+    }
+
+    function onDown(e){
+      const {mx,my}=canvasToWorld(e);
+      if(state.tool.startsWith('place:')){
+        pushUndo('place');
+        placeAt(mx,my);
+        syncInspectorFromSelection();
+        draw();
+        return;
+      }
+      selectAt(mx,my,{cycle:e.altKey});
+      syncInspectorFromSelection();
+      if(state.selected){
+        const ref=getSelectedRef();
+        const isResize=e.shiftKey && ref && ref.rect;
+        state.drag={startX:mx,startY:my,orig:deepClone(ref.obj),resize:isResize};
+      }else{
+        state.drag=null;
+      }
+      draw();
+    }
+    function onMove(e){
+      if(!state.drag||!state.selected)return;
+      const {mx,my}=canvasToWorld(e);
+      const ref=getSelectedRef();
+      if(!ref)return;
+      const dx=mx-state.drag.startX,dy=my-state.drag.startY;
+      if(!state.drag.moved){ pushUndo(state.drag.resize?'resize':'move'); state.drag.moved=true; }
+      if(ref.rect){
+        if(state.drag.resize){
+          ref.obj.w=Math.max(1,snap(state.drag.orig.w+dx));
+          ref.obj.h=Math.max(1,snap(state.drag.orig.h+dy));
+        }else{
+          ref.obj.x=snap(state.drag.orig.x+dx);
+          ref.obj.y=snap(state.drag.orig.y+dy);
+        }
+      }else{
+        ref.obj.x=snap(state.drag.orig.x+dx);
+        ref.obj.y=snap(state.drag.orig.y+dy);
+      }
+      syncInspectorFromSelection();
+      draw();
+    }
+    function onUp(){state.drag=null}
+
+    async function fetchLevels(){
+      const res=await fetch(LEVELS_URL,{cache:'no-store'});
+      if(!res.ok)throw new Error('HTTP '+res.status);
+      const data=await res.json();
+      if(!Array.isArray(data))throw new Error('Invalid JSON (expected array)');
+      return data;
+    }
+
+    function setLevels(levels){
+      state.levels=levels;
+      state.idx=clamp(state.idx,0,Math.max(0,levels.length-1));
+      state.undo=[];state.redo=[];
+      updateUndoRedo();
+      fillLevelSelect();
+      state.selected=null;
+      syncInspectorFromSelection();
+      draw();
+    }
+
+    function downloadJson(filename, obj){
+      const blob=new Blob([JSON.stringify(obj,null,2)+'\n'],{type:'application/json'});
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download=filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(()=>URL.revokeObjectURL(a.href),500);
+    }
+
+    async function pickFile(){
+      if(!window.showOpenFilePicker){
+        alert('File System Access API not available in this browser. Use "Save As" (download) instead.');
+        return;
+      }
+      const [handle]=await window.showOpenFilePicker({
+        multiple:false,
+        types:[{description:'JSON',accept:{'application/json':['.json']}}],
+      });
+      state.fileHandle=handle;
+      els.btnSave.disabled=false;
+      setStatus('linked', 'ok');
+    }
+
+    async function saveToHandle(handle){
+      const writable=await handle.createWritable();
+      await writable.write(JSON.stringify(state.levels,null,2)+'\n');
+      await writable.close();
+      setStatus('saved', 'ok');
+    }
+
+    async function save(){
+      if(state.fileHandle){
+        await saveToHandle(state.fileHandle);
+        return;
+      }
+      // fallback: download
+      downloadJson('neon-runner-levels.json', state.levels);
+      setStatus('downloaded', 'warn');
+    }
+
+    async function saveAs(){
+      if(window.showSaveFilePicker){
+        const handle=await window.showSaveFilePicker({
+          suggestedName:'neon-runner-levels.json',
+          types:[{description:'JSON',accept:{'application/json':['.json']}}],
+        });
+        state.fileHandle=handle;
+        els.btnSave.disabled=false;
+        await saveToHandle(handle);
+        return;
+      }
+      downloadJson('neon-runner-levels.json', state.levels);
+      setStatus('downloaded', 'warn');
+    }
+
+    async function importJson(){
+      const inp=document.createElement('input');
+      inp.type='file';
+      inp.accept='.json,application/json';
+      inp.onchange=async ()=>{
+        const f=inp.files?.[0];
+        if(!f)return;
+        const txt=await f.text();
+        const data=JSON.parse(txt);
+        if(!Array.isArray(data)) return alert('Invalid JSON: expected an array of levels');
+        setLevels(data);
+        setStatus('imported', 'ok');
+      };
+      inp.click();
+    }
+
+    function exportJson(){ downloadJson('neon-runner-levels.json', state.levels); setStatus('exported', 'warn'); }
+
+    function wireUI(){
+      els.levelSelect.addEventListener('change',()=>{
+        state.idx=Number(els.levelSelect.value)||0;
+        state.selected=null;
+        syncInspectorFromSelection();
+        draw();
+      });
+      els.btnNew.addEventListener('click',()=>{
+        pushUndo('new level');
+        state.levels.push(defaultLevel());
+        state.idx=state.levels.length-1;
+        fillLevelSelect();
+        draw();
+        setStatus('new level', 'ok');
+      });
+      els.btnDup.addEventListener('click',()=>{
+        pushUndo('duplicate');
+        const lv=current();
+        state.levels.splice(state.idx+1,0,deepClone(lv));
+        state.idx++;
+        fillLevelSelect();
+        draw();
+        setStatus('duplicated', 'ok');
+      });
+      els.btnDel.addEventListener('click',()=>{
+        if(state.levels.length<=1) return alert('Need at least one level.');
+        if(!confirm('Delete this level?'))return;
+        pushUndo('delete level');
+        state.levels.splice(state.idx,1);
+        state.idx=clamp(state.idx,0,state.levels.length-1);
+        fillLevelSelect();
+        state.selected=null;
+        syncInspectorFromSelection();
+        draw();
+        setStatus('deleted', 'warn');
+      });
+      els.btnReload.addEventListener('click',async ()=>{
+        setStatus('loading…');
+        try{ setLevels(await fetchLevels()); setStatus('loaded', 'ok'); }
+        catch(e){ setStatus('load failed', 'bad'); alert(e.message); }
+      });
+      els.btnImport.addEventListener('click',importJson);
+      els.btnExport.addEventListener('click',exportJson);
+      els.btnPickFile.addEventListener('click',pickFile);
+      els.btnSave.addEventListener('click',save);
+      els.btnSaveAs.addEventListener('click',saveAs);
+      els.btnPlaytest.addEventListener('click',()=>{
+        try{
+          localStorage.setItem('neon-runner.editorLevels', JSON.stringify(state.levels));
+        }catch(_){}
+        window.open('neon-runner.html?editor=1','_blank');
+        setStatus('playtest opened','ok');
+      });
+
+      els.insKind.addEventListener('change',applyInspectorToSelection);
+      els.insType.addEventListener('input',applyInspectorToSelection);
+      [els.insX,els.insY,els.insW,els.insH].forEach(i=>i.addEventListener('input',applyInspectorToSelection));
+      els.btnApplyRaw.addEventListener('click',applyRawJson);
+
+      els.cv.addEventListener('mousedown',onDown);
+      window.addEventListener('mousemove',onMove);
+      window.addEventListener('mouseup',onUp);
+
+      window.addEventListener('keydown',(e)=>{
+        const isCmd=e.ctrlKey||e.metaKey;
+        if(isCmd && (e.key==='z' || e.key==='Z')){ e.preventDefault(); doUndo(); return; }
+        if(isCmd && (e.key==='y' || e.key==='Y')){ e.preventDefault(); doRedo(); return; }
+        if(isCmd && (e.key==='s' || e.key==='S')){ e.preventDefault(); save(); return; }
+        if(e.key==='Tab'){
+          e.preventDefault();
+          if(state.overlapCycle && state.overlapCycle.list.length>1){
+            state.overlapCycle.idx=(state.overlapCycle.idx+1)%state.overlapCycle.list.length;
+            state.selected=state.overlapCycle.list[state.overlapCycle.idx];
+            syncInspectorFromSelection();
+            draw();
+          }
+          return;
+        }
+        if(e.key==='Delete' || e.key==='Backspace'){ deleteSelection(); draw(); }
+        if(e.key==='g' || e.key==='G'){
+          state.snap=!state.snap;
+          els.snapState.textContent=state.snap?'ON':'OFF';
+        }
+      });
+    }
+
+    async function init(){
+      makePalette();
+      rebuildInspectorKinds();
+      wireUI();
+      setStatus('loading…');
+      try{
+        const data=await fetchLevels();
+        setLevels(data);
+        setStatus('loaded', 'ok');
+      }catch(e){
+        setLevels([defaultLevel()]);
+        setStatus('no JSON (started blank)', 'warn');
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
+
