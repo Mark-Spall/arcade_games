@@ -99,8 +99,9 @@ const SFX={
 const L1_BG={
   img:Object.assign(new Image(),{src:'neon-runner-background-level-1.jpg'}),
   loaded:false,
-  darkenAlpha:.22,
-  panStrength:.35, // 0..1 how much of the image's extra width to use
+  darkenAlpha:.34,
+  zoom:1.25,       // >1 crops in so panning is visible
+  panStrength:.85, // 0..1 how much of the extra width to use
 };
 L1_BG.img.addEventListener('load',()=>{L1_BG.loaded=true});
 
@@ -1225,9 +1226,12 @@ function draw(){
     const ar=GW/GH,iar=img.width/img.height;
     let sw,sh;
     if(iar>=ar){sh=img.height;sw=sh*ar}else{sw=img.width;sh=sw/ar}
+    // Crop in a bit so there is always extra width to pan across.
+    sw/=L1_BG.zoom;sh/=L1_BG.zoom;
     const extraX=Math.max(0,img.width-sw);
-    const px=Math.max(0,Math.min(1,(P.x)/(GW-P.w||1)));
-    const sx=(extraX/2)+((px-.5)*extraX*L1_BG.panStrength);
+    const px=Math.max(0,Math.min(1,(P.x)/(Math.max(1,GW-P.w))));
+    const target=(extraX/2)+((px-.5)*extraX*L1_BG.panStrength);
+    const sx=Math.max(0,Math.min(extraX,target));
     const sy=(img.height-sh)/2;
     C.drawImage(img,sx,sy,sw,sh,0,0,GW,GH);
     C.fillStyle=`rgba(0,0,0,${L1_BG.darkenAlpha})`;
