@@ -95,6 +95,7 @@ let time = 0, frame = 0, score = 0;
 let state = 'TITLE'; // TITLE, PLAY, OVER
 let keys = { w:0, a:0, s:0, d:0, ArrowUp:0, ArrowLeft:0, ArrowDown:0, ArrowRight:0 };
 let pointer = { active: false, x: 200, y: 250 };
+let pFace = 0;
 
 let enemies = [];
 let gems = [];
@@ -128,6 +129,11 @@ function initGame() {
   enemies = []; gems = []; particles = [];
   state = 'PLAY';
   arcadeScoreSubmitted = false;
+  pointer.active = false;
+  pointer.x = px;
+  pointer.y = py;
+  for (const k of Object.keys(keys)) keys[k] = 0;
+  pFace = -Math.PI / 2;
 }
 
 function queueVoidSurvivorScore(finalScore) {
@@ -156,6 +162,47 @@ function spawnParticle(x, y, color, count) {
   }
 }
 
+function drawPlayerShip(c, x, y, face) {
+  c.save();
+  c.translate(x, y);
+  c.rotate(face);
+  c.shadowBlur = 18;
+  c.shadowColor = C_PLY;
+  let hull = c.createRadialGradient(0, 0, 2, 0, 0, 14);
+  hull.addColorStop(0, '#e0ffff');
+  hull.addColorStop(0.35, C_PLY);
+  hull.addColorStop(0.7, '#0088aa');
+  hull.addColorStop(1, 'rgba(0,64,80,0.35)');
+  c.strokeStyle = '#7fffff';
+  c.lineWidth = 1.5;
+  c.fillStyle = hull;
+  c.beginPath();
+  c.moveTo(10, 0);
+  c.lineTo(-6, 7);
+  c.lineTo(-2, 0);
+  c.lineTo(-6, -7);
+  c.closePath();
+  c.fill();
+  c.stroke();
+  c.shadowBlur = 10;
+  c.shadowColor = '#00aaff';
+  c.fillStyle = 'rgba(0,200,255,0.9)';
+  c.beginPath();
+  c.arc(-2, 0, 2.5, 0, Math.PI * 2);
+  c.fill();
+  c.shadowBlur = 14;
+  c.shadowColor = '#ff00aa';
+  let thr = (frame % 8 < 4) ? 1 : 0.6;
+  c.fillStyle = `rgba(255,100,200,${0.5 * thr})`;
+  c.beginPath();
+  c.moveTo(-8, -3);
+  c.lineTo(-14 - thr * 6, 0);
+  c.lineTo(-8, 3);
+  c.closePath();
+  c.fill();
+  c.restore();
+}
+
 function update() {
   if (state !== 'PLAY') {
     if ((keys.w || keys.ArrowUp || keys.s) && state !== 'PLAY') initGame();
@@ -165,21 +212,26 @@ function update() {
   frame++;
   if (frame % 60 === 0) time++;
 
-  // Movement
+  // Movement: keyboard + pointer can combine; pointer alone when active and far enough
   let dx = 0, dy = 0;
+  if (keys.w || keys.ArrowUp) dy -= 1;
+  if (keys.s || keys.ArrowDown) dy += 1;
+  if (keys.a || keys.ArrowLeft) dx -= 1;
+  if (keys.d || keys.ArrowRight) dx += 1;
   if (pointer.active) {
-    let ang = Math.atan2(pointer.y - py, pointer.x - px);
+    let pang = Math.atan2(pointer.y - py, pointer.x - px);
     let dist = Math.hypot(pointer.y - py, pointer.x - px);
-    if (dist > 5) { dx = Math.cos(ang); dy = Math.sin(ang); }
-  } else {
-    if (keys.w || keys.ArrowUp) dy -= 1;
-    if (keys.s || keys.ArrowDown) dy += 1;
-    if (keys.a || keys.ArrowLeft) dx -= 1;
-    if (keys.d || keys.ArrowRight) dx += 1;
+    if (dist > 8) {
+      dx += Math.cos(pang);
+      dy += Math.sin(pang);
+    }
   }
-  
   let len = Math.hypot(dx, dy);
-  if (len > 0) { dx /= len; dy /= len; }
+  if (len > 0) {
+    dx /= len;
+    dy /= len;
+    pFace = Math.atan2(dy, dx);
+  }
   
   px += dx * pSpeed; py += dy * pSpeed;
   px = Math.max(10, Math.min(cv.width-10, px));
@@ -314,22 +366,34 @@ function draw() {
   }
 
   if (state !== 'TITLE') {
-    // Draw Player
-    ctx.shadowColor = C_PLY;
-    ctx.fillStyle = C_PLY;
-    ctx.fillRect(px - 6, py - 6, 12, 12);
-
-    // Draw Weapons
+    drawPlayerShip(ctx, px, py, pFace);
+    // Draw Weapons (shard orbiters)
     let wpnCount = Math.min(level, 8);
     let orbitRadius = 40 + Math.min(level * 2, 40);
     let wpnSpeed = time * 3;
-    ctx.shadowColor = C_WPN;
-    ctx.fillStyle = C_WPN;
-    for(let i=0; i<wpnCount; i++) {
+    for (let i = 0; i < wpnCount; i++) {
       let ang = (wpnSpeed + (i * 360 / wpnCount)) * Math.PI / 180;
       let wx = px + Math.cos(ang) * orbitRadius;
       let wy = py + Math.sin(ang) * orbitRadius;
-      ctx.beginPath(); ctx.arc(wx, wy, 4, 0, Math.PI*2); ctx.fill();
+      let shard = ang + frame * 0.08;
+      ctx.save();
+      ctx.translate(wx, wy);
+      ctx.rotate(shard);
+      ctx.shadowBlur = 12;
+      ctx.shadowColor = C_WPN;
+      let grd = ctx.createLinearGradient(-5, -5, 5, 5);
+      grd.addColorStop(0, '#fff9a0');
+      grd.addColorStop(0.5, C_WPN);
+      grd.addColorStop(1, '#ff8800');
+      ctx.fillStyle = grd;
+      ctx.beginPath();
+      ctx.moveTo(6, 0);
+      ctx.lineTo(-4, 4);
+      ctx.lineTo(-2, 0);
+      ctx.lineTo(-4, -4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
     }
   }
   ctx.restore(); // Remove glitch transform
@@ -341,15 +405,15 @@ function draw() {
     // XP Bar
     ctx.fillStyle = '#222'; ctx.fillRect(10, 10, cv.width-20, 8);
     ctx.fillStyle = C_EXP; ctx.fillRect(10, 10, (cv.width-20) * (xp/nextXp), 8);
-    // HP Bar
-    ctx.fillStyle = '#222'; ctx.fillRect(px-15, py+15, 30, 4);
-    ctx.fillStyle = C_ENM; ctx.fillRect(px-15, py+15, 30 * (hp/maxHp), 4);
-    
+    // HP Bar (HUD — not tied to sprite)
+    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(10, 22, cv.width-20, 6);
+    ctx.fillStyle = '#333'; ctx.strokeRect(10, 22, cv.width-20, 6);
+    ctx.fillStyle = C_ENM; ctx.fillRect(10, 22, (cv.width-20) * (hp/maxHp), 6);
     ctx.fillStyle = C_PLY;
     ctx.font = '10px "Press Start 2P"';
-    ctx.fillText(`LVL:${level}`, 10, 35);
+    ctx.fillText(`LVL:${level}`, 10, 40);
     ctx.textAlign = 'right';
-    ctx.fillText(score, cv.width-10, 35);
+    ctx.fillText(score, cv.width-10, 40);
     ctx.textAlign = 'left';
   } else if (state === 'TITLE') {
     ctx.fillStyle = C_PLY; ctx.textAlign = 'center';

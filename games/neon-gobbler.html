@@ -123,6 +123,11 @@ const ROWS = 21;
 const GW = COLS * TS;
 const GH = ROWS * TS + 40; // Extra 40px for UI
 
+/** True when position is on a tile center (works with float speeds / drift). */
+function alignedToTile(v) {
+  return Math.abs(v / TS - Math.round(v / TS)) < 1e-4;
+}
+
 function resize() {
   const mw = Math.min(window.innerWidth - 16, GW);
   const mh = Math.min(window.innerHeight - (window.innerWidth < 560 ? 160 : 16), GH);
@@ -191,16 +196,17 @@ class Entity {
     this.nextVx = 0; this.nextVy = 0;
   }
   update() {
-    // Keep movement aligned to the tile grid so wall checks trigger.
+    // Nudge float drift only — do NOT use speed as threshold or partial steps
+    // snap back to the last tile (e.g. 182→180) and movement freezes.
     const snap = (v) => {
       const m = Math.round(v / TS) * TS;
-      return Math.abs(v - m) <= this.speed + 0.001 ? m : v;
+      return Math.abs(v - m) <= 0.05 ? m : v;
     };
     this.x = snap(this.x);
     this.y = snap(this.y);
 
     // Snap to grid intersections to turn
-    if (this.x % TS === 0 && this.y % TS === 0) {
+    if (alignedToTile(this.x) && alignedToTile(this.y)) {
       let r = this.y / TS, c = this.x / TS;
       // Try next direction
       if (!(this.nextVx === 0 && this.nextVy === 0)) {
@@ -302,8 +308,8 @@ function update() {
   pac.update();
   
   // Pac-Man eating logic
-  if (pac.x % TS === 0 && pac.y % TS === 0) {
-    let r = pac.y / TS, c = pac.x / TS;
+  if (alignedToTile(pac.x) && alignedToTile(pac.y)) {
+    let r = Math.round(pac.y / TS), c = Math.round(pac.x / TS);
     if (map[r][c] === 2) {
       map[r][c] = 0; score += 10; pelletsLeft--;
     } else if (map[r][c] === 3) {
@@ -314,8 +320,8 @@ function update() {
 
   // Ghost logic
   ghosts.forEach(g => {
-    if (g.x % TS === 0 && g.y % TS === 0) {
-      let r = g.y / TS, c = g.x / TS;
+    if (alignedToTile(g.x) && alignedToTile(g.y)) {
+      let r = Math.round(g.y / TS), c = Math.round(g.x / TS);
       let dirs = [{x:1,y:0}, {x:-1,y:0}, {x:0,y:1}, {x:0,y:-1}];
       // Remove backwards direction
       dirs = dirs.filter(d => !(d.x === -g.vx && d.y === -g.vy) || (g.vx === 0 && g.vy === 0));

@@ -281,10 +281,22 @@ function spawnPowerup(x, y) {
   else if (roll < 0.70) type = 'life';
   else type = 'shield';
 
+  let dx = x - player.x;
+  let dy = y - player.y;
+  let d = Math.hypot(dx, dy);
+  if (d < 12) {
+    const a = rng(0, Math.PI * 2);
+    dx = Math.cos(a);
+    dy = Math.sin(a);
+    d = 1;
+  }
+  const spd = rng(1.5, 2.3);
+
   powerups.push({
     x, y,
-    vy: 0.8,
-    life: 420,
+    vx: (dx / d) * spd,
+    vy: (dy / d) * spd,
+    life: 520,
     type: type,
     pulse: 0
   });
@@ -423,10 +435,12 @@ function update() {
   }
 
   powerups = powerups.filter(p => {
+    p.x += p.vx;
     p.y += p.vy;
     p.life--;
     p.pulse = Math.sin(Date.now() * 0.01) * 0.2 + 1;
-    if (p.life <= 0 || p.y > H + 20) return false;
+    if (p.life <= 0) return false;
+    if (p.x < -28 || p.x > W + 28 || p.y < -28 || p.y > H + 28) return false;
 
     if (dist(p, player) < 32) {
       SFX.power();
