@@ -222,7 +222,7 @@ function spawnParticle(x, y, color, count, speed = 2) {
   }
 }
 
-function bouncePlayerBulletOffObstacles(b) {
+function bounceBulletOffObstacles(b) {
   for (const o of obstacles) {
     const cx = Math.max(o.x, Math.min(b.x, o.x + o.w));
     const cy = Math.max(o.y, Math.min(b.y, o.y + o.h));
@@ -246,7 +246,8 @@ function bouncePlayerBulletOffObstacles(b) {
     b.vy -= 2 * dot * ny;
     b.vx *= 0.98;
     b.vy *= 0.98;
-    spawnParticle(b.x, b.y, '#88ffff', 4, 1.5);
+    const spark = b.isPlayer ? '#88ffff' : C_EBUL;
+    spawnParticle(b.x, b.y, spark, 4, 1.5);
     return;
   }
 }
@@ -364,8 +365,8 @@ function update() {
     if (e.reload <= 0) {
       bullets.push({ 
         x: e.x, y: e.y, 
-        vx: Math.cos(ang) * 4.5, vy: Math.sin(ang) * 4.5, // Enemy bullets are fast!
-        isPlayer: false, radius: 3 
+        vx: Math.cos(ang) * 4.5, vy: Math.sin(ang) * 4.5,
+        isPlayer: false, radius: 3, bounces: 0,
       });
       e.reload = 80 + Math.random()*40;
     }
@@ -383,12 +384,10 @@ function update() {
     b.x += b.vx * timeScale;
     b.y += b.vy * timeScale;
 
-    if (b.isPlayer) {
-      bouncePlayerBulletOffObstacles(b);
-      if (b.dead) {
-        bullets.splice(i, 1);
-        continue;
-      }
+    bounceBulletOffObstacles(b);
+    if (b.dead) {
+      bullets.splice(i, 1);
+      continue;
     }
 
     if (b.x < -24 || b.x > cv.width + 24 || b.y < -24 || b.y > cv.height + 24) {
