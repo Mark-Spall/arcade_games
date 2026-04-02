@@ -112,5 +112,12 @@
     "href": "/games/neon-lander.html",
     "description": "Lunar lander with neon pads: rotate, thrust, beat wind, and land softly for multipliers.",
     "tags": ["Lander", "Arcade", "Neon"]
+  },
+  {
+    "id": "neon-grid",
+    "title": "NEON GRID",
+    "href": "/games/neon-grid.html",
+    "description": "Tower defense on a glowing grid: place towers, upgrade, repair, and hold endless waves with bosses every 5 rounds.",
+    "tags": ["Tower Defense", "Arcade", "Neon"]
   }
 ]
