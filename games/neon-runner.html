@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>NEON RUNNER</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
   *{margin:0;padding:0;box-sizing:border-box}
-  body{background:#04020c;display:flex;justify-content:center;align-items:center;min-height:100vh;overflow:hidden;font-family:'Press Start 2P',monospace}
+  body{background:#04020c;display:flex;justify-content:center;align-items:center;min-height:100vh;min-height:100dvh;overflow:hidden;font-family:'Press Start 2P',monospace;padding:max(4px,env(safe-area-inset-top,0)) max(4px,env(safe-area-inset-right,0)) max(4px,env(safe-area-inset-bottom,0)) max(4px,env(safe-area-inset-left,0))}
   #cab{position:relative;border:3px solid #1a1a3a;border-radius:10px;box-shadow:0 0 40px rgba(180,0,255,.15),0 0 80px rgba(0,200,255,.08),inset 0 0 40px rgba(0,0,0,.9);background:#08081a;padding:6px}
   #cv{display:block;border-radius:5px;image-rendering:pixelated}
   #crt{position:absolute;top:6px;left:6px;right:6px;bottom:6px;border-radius:5px;pointer-events:none;z-index:10;background:repeating-linear-gradient(0deg,rgba(0,0,0,.08) 0px,rgba(0,0,0,.08) 1px,transparent 1px,transparent 2.5px)}
@@ -38,13 +38,35 @@
 const cv=document.getElementById('cv'),C=cv.getContext('2d');
 const GW=640,GH=400;
 
+function bodyPad(){
+  const st=getComputedStyle(document.body);
+  return{
+    l:+st.paddingLeft||0,r:+st.paddingRight||0,
+    t:+st.paddingTop||0,b:+st.paddingBottom||0
+  };
+}
 function resize(){
-  const mw=Math.min(window.innerWidth-16,640),mh=Math.min(window.innerHeight-(window.innerWidth<560?80:16),400);
-  const s=Math.min(mw/GW,mh/GH);
+  const narrow=window.innerWidth<560;
+  const vv=window.visualViewport;
+  const vw=vv?vv.width:window.innerWidth;
+  const vh=vv?vv.height:window.innerHeight;
+  let mw,mh;
+  if(narrow){
+    const p=bodyPad();
+    const touchBand=72;
+    mw=Math.max(100,vw-p.l-p.r);
+    mh=Math.max(80,vh-p.t-p.b-touchBand);
+  }else{
+    mw=Math.min(vw-16,640);
+    mh=Math.min(vh-16,400);
+  }
+  let s=Math.min(mw/GW,mh/GH);
+  if(!narrow)s=Math.min(s,1);
   cv.width=GW;cv.height=GH;
   cv.style.width=Math.floor(GW*s)+'px';cv.style.height=Math.floor(GH*s)+'px';
 }
 resize();window.addEventListener('resize',resize);
+if(window.visualViewport)window.visualViewport.addEventListener('resize',resize);
 
 // ─── Audio ───
 const AC=window.AudioContext||window.webkitAudioContext;let ac;
@@ -70,7 +92,17 @@ const SFX={
   crumble:()=>snd(80,.3,'sawtooth',.04),
   exit:()=>{[440,660,880,1100,1320].forEach((f,i)=>setTimeout(()=>snd(f,.1),i*70))},
   stomp:()=>snd(200,.1,'sawtooth',.05),
+  oneup:()=>{[523,659,784,1046].forEach((f,i)=>setTimeout(()=>snd(f,.09,'square',.055),i*85))},
 };
+
+// ─── Level 1 Background ───
+const L1_BG={
+  img:Object.assign(new Image(),{src:'neon-runner-background-level-1.jpg'}),
+  loaded:false,
+  darkenAlpha:.22,
+  panStrength:.35, // 0..1 how much of the image's extra width to use
+};
+L1_BG.img.addEventListener('load',()=>{L1_BG.loaded=true});
 
 // ─── Colors / Themes ───
 const THEMES={
@@ -114,6 +146,7 @@ const LEVELS=[
   collectibles:[
     {x:230,y:300,type:"coin"},{x:350,y:260,type:"coin"},{x:200,y:210,type:"coin"},
     {x:70,y:160,type:"coin"},{x:520,y:110,type:"gem",points:500},
+    {x:340,y:172,type:"1up"},
   ],
   enemies:[{x:330,y:274,type:"walker",range:80}],
   doors:[],
@@ -148,6 +181,7 @@ const LEVELS=[
     {x:100,y:240,type:"coin"},{x:330,y:270,type:"coin"},{x:450,y:220,type:"coin"},
     {x:200,y:90,type:"coin"},{x:340,y:50,type:"gem",points:500},
     {x:60,y:340,type:"key",id:"red"},
+    {x:95,y:78,type:"1up"},
   ],
   enemies:[
     {x:280,y:284,type:"walker",range:60},
@@ -319,6 +353,404 @@ const LEVELS=[
   ],
   doors:[{x:590,y:38,w:24,h:32,keyRequired:"blue"}],
 },
+
+// ── LEVEL 7: Forest Run ──
+{
+  name:"FOREST RUN",theme:"forest",gravity:.45,timeLimit:70,
+  playerStart:{x:30,y:360},exit:{x:600,y:356},
+  platforms:[
+    {x:0,y:384,w:100,h:16,type:"solid"},
+    {x:140,y:350,w:80,h:16,type:"solid"},
+    {x:260,y:310,w:70,h:16,type:"oneway"},
+    {x:360,y:290,w:80,h:16,type:"moving",moveAxis:"x",moveRange:50,moveSpeed:1.3},
+    {x:490,y:310,w:80,h:16,type:"solid"},
+    {x:560,y:374,w:80,h:26,type:"solid"},
+    {x:80,y:260,w:60,h:16,type:"bounce",bouncePower:12},
+    {x:200,y:200,w:80,h:16,type:"solid"},
+    {x:340,y:180,w:70,h:16,type:"crumble",crumbleDelay:.5},
+    {x:470,y:210,w:80,h:16,type:"solid"},
+  ],
+  hazards:[
+    {x:100,y:384,w:40,h:14,type:"spikes"},
+    {x:300,y:220,w:16,h:16,type:"fireball",moveAxis:"y",moveRange:40,moveSpeed:2},
+  ],
+  collectibles:[
+    {x:170,y:320,type:"coin"},{x:290,y:280,type:"coin"},{x:400,y:260,type:"coin"},
+    {x:520,y:280,type:"coin"},{x:240,y:170,type:"gem",points:500},
+    {x:500,y:180,type:"coin"},
+  ],
+  enemies:[
+    {x:170,y:334,type:"walker",range:30},
+    {x:510,y:294,type:"walker",range:40},
+    {x:220,y:184,type:"walker",range:40},
+  ],
+  doors:[],
+},
+
+// ── LEVEL 8: Neon Towers ──
+{
+  name:"NEON TOWERS",theme:"neon",gravity:.45,timeLimit:0,
+  playerStart:{x:300,y:360},exit:{x:320,y:24},
+  platforms:[
+    {x:260,y:384,w:120,h:16,type:"solid"},
+    {x:200,y:60,w:16,h:330,type:"solid"},
+    {x:424,y:60,w:16,h:330,type:"solid"},
+    {x:230,y:330,w:50,h:16,type:"solid"},
+    {x:360,y:290,w:50,h:16,type:"solid"},
+    {x:230,y:250,w:50,h:16,type:"oneway"},
+    {x:360,y:210,w:50,h:16,type:"crumble",crumbleDelay:.6},
+    {x:230,y:170,w:50,h:16,type:"solid"},
+    {x:360,y:130,w:50,h:16,type:"solid"},
+    {x:280,y:74,w:80,h:16,type:"solid"},
+    {x:120,y:200,w:60,h:16,type:"solid"},
+    {x:460,y:260,w:60,h:16,type:"solid"},
+  ],
+  hazards:[
+    {x:310,y:340,w:16,h:16,type:"fireball",moveAxis:"y",moveRange:100,moveSpeed:1.5},
+  ],
+  collectibles:[
+    {x:255,y:300,type:"coin"},{x:385,y:260,type:"coin"},{x:255,y:220,type:"coin"},
+    {x:385,y:180,type:"coin"},{x:255,y:140,type:"coin"},{x:320,y:45,type:"gem",points:500},
+    {x:145,y:170,type:"1up"},
+  ],
+  enemies:[
+    {x:240,y:314,type:"walker",range:30},
+    {x:370,y:274,type:"walker",range:30},
+    {x:370,y:114,type:"walker",range:30},
+  ],
+  doors:[],
+},
+
+// ── LEVEL 9: Lava Descent ──
+{
+  name:"LAVA DESCENT",theme:"lava",gravity:.5,timeLimit:75,
+  playerStart:{x:560,y:40},exit:{x:40,y:366},
+  platforms:[
+    {x:540,y:64,w:100,h:16,type:"solid"},
+    {x:440,y:120,w:70,h:16,type:"crumble",crumbleDelay:.5},
+    {x:320,y:140,w:80,h:16,type:"solid"},
+    {x:180,y:120,w:80,h:16,type:"moving",moveAxis:"x",moveRange:40,moveSpeed:1.5},
+    {x:80,y:160,w:80,h:16,type:"solid"},
+    {x:180,y:220,w:70,h:16,type:"solid"},
+    {x:320,y:250,w:80,h:16,type:"conveyor",conveyorDir:-1,conveyorSpeed:2},
+    {x:460,y:280,w:80,h:16,type:"solid"},
+    {x:380,y:340,w:60,h:16,type:"crumble",crumbleDelay:.4},
+    {x:240,y:360,w:80,h:16,type:"solid"},
+    {x:0,y:384,w:100,h:16,type:"solid"},
+    {x:540,y:200,w:60,h:16,type:"solid"},
+  ],
+  hazards:[
+    {x:150,y:180,w:16,h:16,type:"fireball",moveAxis:"x",moveRange:40,moveSpeed:2.5},
+    {x:280,y:290,w:16,h:16,type:"fireball",moveAxis:"y",moveRange:50,moveSpeed:2},
+    {x:460,y:340,w:16,h:16,type:"fireball",moveAxis:"x",moveRange:50,moveSpeed:3},
+    {x:120,y:384,w:120,h:14,type:"spikes"},
+  ],
+  collectibles:[
+    {x:470,y:90,type:"coin"},{x:350,y:110,type:"coin"},{x:130,y:130,type:"coin"},
+    {x:210,y:190,type:"coin"},{x:360,y:220,type:"coin"},{x:500,y:250,type:"coin"},
+    {x:270,y:330,type:"coin"},{x:40,y:355,type:"gem",points:500},
+  ],
+  enemies:[
+    {x:340,y:124,type:"walker",range:50},
+    {x:480,y:264,type:"walker",range:50},
+    {x:260,y:344,type:"walker",range:50},
+  ],
+  doors:[],
+},
+
+// ── LEVEL 10: Ice Cavern ──
+{
+  name:"ICE CAVERN",theme:"ice",gravity:.45,timeLimit:70,
+  playerStart:{x:40,y:60},exit:{x:580,y:60},
+  platforms:[
+    {x:0,y:84,w:100,h:16,type:"solid"},
+    {x:120,y:140,w:80,h:16,type:"ice"},
+    {x:240,y:200,w:70,h:16,type:"ice"},
+    {x:360,y:260,w:80,h:16,type:"ice"},
+    {x:200,y:340,w:80,h:16,type:"conveyor",conveyorDir:1,conveyorSpeed:2.5},
+    {x:320,y:360,w:100,h:16,type:"ice"},
+    {x:460,y:340,w:80,h:16,type:"conveyor",conveyorDir:-1,conveyorSpeed:2},
+    {x:520,y:280,w:70,h:16,type:"ice"},
+    {x:480,y:210,w:60,h:16,type:"moving",moveAxis:"y",moveRange:30,moveSpeed:1.2},
+    {x:540,y:140,w:80,h:16,type:"ice"},
+    {x:540,y:80,w:100,h:16,type:"solid"},
+    {x:80,y:340,w:60,h:16,type:"bounce",bouncePower:14},
+    {x:0,y:384,w:140,h:16,type:"solid"},
+  ],
+  hazards:[
+    {x:140,y:384,w:60,h:14,type:"spikes"},
+    {x:300,y:180,w:16,h:16,type:"fireball",moveAxis:"x",moveRange:50,moveSpeed:2},
+    {x:440,y:120,w:16,h:16,type:"fireball",moveAxis:"y",moveRange:60,moveSpeed:2.5},
+  ],
+  collectibles:[
+    {x:155,y:110,type:"coin"},{x:275,y:170,type:"coin"},{x:395,y:230,type:"coin"},
+    {x:360,y:330,type:"coin"},{x:540,y:250,type:"coin"},{x:570,y:110,type:"coin"},
+    {x:580,y:50,type:"gem",points:500},
+    {x:110,y:310,type:"1up"},
+  ],
+  enemies:[
+    {x:260,y:184,type:"walker",range:40},
+    {x:380,y:244,type:"walker",range:50},
+    {x:560,y:64,type:"walker",range:60},
+  ],
+  doors:[],
+},
+
+// ── LEVEL 11: Cave Labyrinth ──
+{
+  name:"CAVE LABYRINTH",theme:"cave",gravity:.45,timeLimit:100,
+  playerStart:{x:40,y:360},exit:{x:580,y:56},
+  platforms:[
+    {x:0,y:384,w:160,h:16,type:"solid"},
+    {x:200,y:384,w:120,h:16,type:"solid"},
+    {x:360,y:384,w:120,h:16,type:"solid"},
+    {x:520,y:384,w:120,h:16,type:"solid"},
+    {x:140,y:284,w:16,h:100,type:"ladder"},
+    {x:400,y:200,w:16,h:100,type:"ladder"},
+    {x:0,y:280,w:130,h:16,type:"solid"},
+    {x:180,y:260,w:80,h:16,type:"crumble",crumbleDelay:.5},
+    {x:300,y:280,w:100,h:16,type:"solid"},
+    {x:200,y:180,w:80,h:16,type:"solid"},
+    {x:420,y:190,w:100,h:16,type:"solid"},
+    {x:540,y:170,w:16,h:80,type:"ladder"},
+    {x:0,y:160,w:80,h:16,type:"solid"},
+    {x:100,y:120,w:60,h:16,type:"moving",moveAxis:"x",moveRange:40,moveSpeed:1.2},
+    {x:280,y:100,w:80,h:16,type:"solid"},
+    {x:420,y:80,w:60,h:16,type:"bounce",bouncePower:10},
+    {x:540,y:70,w:100,h:16,type:"solid"},
+  ],
+  hazards:[
+    {x:160,y:384,w:40,h:14,type:"spikes"},
+    {x:320,y:384,w:40,h:14,type:"spikes"},
+    {x:480,y:384,w:40,h:14,type:"spikes"},
+    {x:150,y:200,w:16,h:16,type:"fireball",moveAxis:"y",moveRange:40,moveSpeed:1.8},
+  ],
+  collectibles:[
+    {x:250,y:370,type:"coin"},{x:420,y:370,type:"coin"},
+    {x:60,y:250,type:"coin"},{x:340,y:250,type:"coin"},
+    {x:240,y:150,type:"coin"},{x:460,y:160,type:"coin"},
+    {x:320,y:70,type:"gem",points:500},
+    {x:40,y:130,type:"key",id:"red"},
+  ],
+  enemies:[
+    {x:230,y:368,type:"walker",range:80},
+    {x:320,y:264,type:"walker",range:60},
+    {x:450,y:174,type:"walker",range:60},
+    {x:560,y:54,type:"walker",range:60},
+  ],
+  doors:[{x:590,y:38,w:24,h:32,keyRequired:"red"}],
+},
+
+// ── LEVEL 12: Sky Islands ──
+{
+  name:"SKY ISLANDS",theme:"sky",gravity:.35,timeLimit:70,
+  playerStart:{x:30,y:340},exit:{x:590,y:60},
+  platforms:[
+    {x:0,y:370,w:80,h:30,type:"solid"},
+    {x:100,y:320,w:60,h:16,type:"moving",moveAxis:"x",moveRange:60,moveSpeed:1},
+    {x:240,y:280,w:60,h:16,type:"oneway"},
+    {x:340,y:240,w:60,h:16,type:"moving",moveAxis:"y",moveRange:60,moveSpeed:1.2},
+    {x:440,y:200,w:70,h:16,type:"oneway"},
+    {x:340,y:150,w:60,h:16,type:"moving",moveAxis:"x",moveRange:80,moveSpeed:1.5},
+    {x:200,y:120,w:60,h:16,type:"solid"},
+    {x:100,y:160,w:60,h:16,type:"crumble",crumbleDelay:.6},
+    {x:480,y:140,w:60,h:16,type:"solid"},
+    {x:540,y:80,w:100,h:16,type:"solid"},
+    {x:480,y:350,w:60,h:16,type:"bounce",bouncePower:15},
+    {x:560,y:300,w:60,h:16,type:"solid"},
+  ],
+  hazards:[
+    {x:300,y:300,w:16,h:16,type:"fireball",moveAxis:"y",moveRange:80,moveSpeed:1.5},
+    {x:420,y:100,w:16,h:16,type:"fireball",moveAxis:"x",moveRange:40,moveSpeed:2},
+  ],
+  collectibles:[
+    {x:140,y:290,type:"coin"},{x:270,y:250,type:"coin"},{x:370,y:200,type:"coin"},
+    {x:470,y:170,type:"coin"},{x:230,y:90,type:"coin"},{x:380,y:120,type:"coin"},
+    {x:590,y:50,type:"gem",points:500},{x:580,y:270,type:"coin"},
+  ],
+  enemies:[
+    {x:260,y:264,type:"flyer",moveAxis:"y",moveRange:40,moveSpeed:1},
+    {x:460,y:184,type:"flyer",moveAxis:"x",moveRange:30,moveSpeed:1.2},
+    {x:560,y:64,type:"walker",range:60},
+  ],
+  doors:[],
+},
+
+// ── LEVEL 13: Neon Gauntlet ──
+{
+  name:"NEON GAUNTLET",theme:"neon",gravity:.5,timeLimit:45,
+  playerStart:{x:30,y:360},exit:{x:590,y:40},
+  platforms:[
+    {x:0,y:384,w:80,h:16,type:"solid"},
+    {x:110,y:350,w:60,h:16,type:"conveyor",conveyorDir:1,conveyorSpeed:3},
+    {x:200,y:310,w:50,h:16,type:"crumble",crumbleDelay:.35},
+    {x:280,y:270,w:50,h:16,type:"solid"},
+    {x:360,y:240,w:50,h:16,type:"crumble",crumbleDelay:.35},
+    {x:440,y:200,w:50,h:16,type:"solid"},
+    {x:520,y:170,w:60,h:16,type:"conveyor",conveyorDir:1,conveyorSpeed:2},
+    {x:440,y:130,w:50,h:16,type:"moving",moveAxis:"x",moveRange:40,moveSpeed:2},
+    {x:340,y:100,w:50,h:16,type:"solid"},
+    {x:440,y:70,w:50,h:16,type:"crumble",crumbleDelay:.3},
+    {x:550,y:60,w:90,h:16,type:"solid"},
+    {x:300,y:370,w:50,h:16,type:"bounce",bouncePower:14},
+    {x:150,y:384,w:100,h:16,type:"solid"},
+  ],
+  hazards:[
+    {x:80,y:384,w:70,h:14,type:"spikes"},
+    {x:250,y:384,w:50,h:14,type:"spikes"},
+    {x:350,y:384,w:200,h:14,type:"spikes"},
+    {x:230,y:250,w:16,h:16,type:"fireball",moveAxis:"y",moveRange:60,moveSpeed:3},
+    {x:500,y:120,w:16,h:16,type:"fireball",moveAxis:"x",moveRange:50,moveSpeed:3},
+    {x:380,y:60,w:16,h:16,type:"fireball",moveAxis:"y",moveRange:40,moveSpeed:2.5},
+  ],
+  collectibles:[
+    {x:140,y:320,type:"coin"},{x:220,y:280,type:"coin"},{x:310,y:240,type:"coin"},
+    {x:460,y:170,type:"coin"},{x:370,y:70,type:"coin"},{x:600,y:30,type:"gem",points:500},
+  ],
+  enemies:[
+    {x:290,y:254,type:"walker",range:25},
+    {x:450,y:184,type:"walker",range:25},
+  ],
+  doors:[],
+},
+
+// ── LEVEL 14: Forest Canopy ──
+{
+  name:"FOREST CANOPY",theme:"forest",gravity:.42,timeLimit:80,
+  playerStart:{x:300,y:370},exit:{x:310,y:30},
+  platforms:[
+    {x:240,y:384,w:160,h:16,type:"solid"},
+    {x:100,y:340,w:80,h:16,type:"bounce",bouncePower:11},
+    {x:420,y:310,w:80,h:16,type:"solid"},
+    {x:200,y:270,w:80,h:16,type:"solid"},
+    {x:400,y:230,w:60,h:16,type:"moving",moveAxis:"x",moveRange:60,moveSpeed:1.2},
+    {x:140,y:200,w:70,h:16,type:"oneway"},
+    {x:320,y:180,w:60,h:16,type:"crumble",crumbleDelay:.5},
+    {x:480,y:160,w:60,h:16,type:"bounce",bouncePower:12},
+    {x:100,y:120,w:80,h:16,type:"solid"},
+    {x:280,y:100,w:80,h:16,type:"solid"},
+    {x:440,y:80,w:60,h:16,type:"solid"},
+    {x:260,y:50,w:120,h:16,type:"solid"},
+    {x:0,y:280,w:60,h:16,type:"solid"},
+    {x:560,y:260,w:60,h:16,type:"solid"},
+  ],
+  hazards:[
+    {x:200,y:384,w:40,h:14,type:"spikes"},
+    {x:400,y:384,w:80,h:14,type:"spikes"},
+    {x:250,y:140,w:16,h:16,type:"fireball",moveAxis:"x",moveRange:50,moveSpeed:2},
+  ],
+  collectibles:[
+    {x:140,y:310,type:"coin"},{x:450,y:280,type:"coin"},{x:240,y:240,type:"coin"},
+    {x:440,y:200,type:"coin"},{x:170,y:170,type:"coin"},{x:510,y:130,type:"coin"},
+    {x:140,y:90,type:"coin"},{x:310,y:20,type:"gem",points:500},
+    {x:30,y:250,type:"1up"},
+  ],
+  enemies:[
+    {x:440,y:294,type:"walker",range:50},
+    {x:220,y:254,type:"walker",range:50},
+    {x:200,y:140,type:"flyer",moveAxis:"y",moveRange:40,moveSpeed:1.5},
+    {x:400,y:100,type:"flyer",moveAxis:"x",moveRange:50,moveSpeed:1.3},
+    {x:280,y:34,type:"walker",range:80},
+  ],
+  doors:[],
+},
+
+// ── LEVEL 15: Lava Core ──
+{
+  name:"LAVA CORE",theme:"lava",gravity:.5,timeLimit:90,
+  playerStart:{x:40,y:360},exit:{x:580,y:56},
+  platforms:[
+    {x:0,y:384,w:100,h:16,type:"solid"},
+    {x:520,y:384,w:120,h:16,type:"solid"},
+    {x:0,y:280,w:80,h:16,type:"solid"},
+    {x:100,y:240,w:60,h:16,type:"crumble",crumbleDelay:.4},
+    {x:0,y:180,w:80,h:16,type:"solid"},
+    {x:100,y:130,w:60,h:16,type:"solid"},
+    {x:200,y:320,w:60,h:16,type:"moving",moveAxis:"y",moveRange:60,moveSpeed:1.5},
+    {x:300,y:280,w:80,h:16,type:"solid"},
+    {x:300,y:180,w:80,h:16,type:"conveyor",conveyorDir:1,conveyorSpeed:2},
+    {x:240,y:100,w:60,h:16,type:"solid"},
+    {x:420,y:300,w:80,h:16,type:"ice"},
+    {x:520,y:250,w:16,h:80,type:"ladder"},
+    {x:480,y:230,w:80,h:16,type:"solid"},
+    {x:540,y:160,w:80,h:16,type:"crumble",crumbleDelay:.35},
+    {x:440,y:130,w:60,h:16,type:"solid"},
+    {x:530,y:74,w:110,h:16,type:"solid"},
+    {x:200,y:370,w:50,h:16,type:"bounce",bouncePower:13},
+  ],
+  hazards:[
+    {x:100,y:384,w:100,h:14,type:"spikes"},
+    {x:360,y:384,w:160,h:14,type:"spikes"},
+    {x:180,y:240,w:16,h:16,type:"fireball",moveAxis:"y",moveRange:50,moveSpeed:2.5},
+    {x:400,y:180,w:16,h:16,type:"fireball",moveAxis:"x",moveRange:60,moveSpeed:3},
+    {x:480,y:100,w:16,h:16,type:"fireball",moveAxis:"y",moveRange:40,moveSpeed:2},
+  ],
+  collectibles:[
+    {x:40,y:250,type:"key",id:"red"},
+    {x:560,y:200,type:"key",id:"gold"},
+    {x:330,y:250,type:"coin"},{x:330,y:150,type:"coin"},
+    {x:140,y:100,type:"coin"},{x:460,y:100,type:"coin"},
+    {x:280,y:70,type:"gem",points:500},{x:40,y:150,type:"coin"},
+  ],
+  enemies:[
+    {x:20,y:264,type:"walker",range:40},
+    {x:320,y:264,type:"walker",range:50},
+    {x:500,y:214,type:"walker",range:50},
+    {x:550,y:58,type:"walker",range:60},
+    {x:300,y:120,type:"flyer",moveAxis:"x",moveRange:40,moveSpeed:1.5},
+  ],
+  doors:[{x:575,y:42,w:24,h:32,keyRequired:"red"},{x:600,y:42,w:24,h:32,keyRequired:"gold"}],
+},
+
+// ── LEVEL 16: Final Ascent ──
+{
+  name:"FINAL ASCENT",theme:"neon",gravity:.45,timeLimit:0,
+  playerStart:{x:40,y:370},exit:{x:310,y:20},
+  platforms:[
+    {x:0,y:384,w:120,h:16,type:"solid"},
+    {x:160,y:360,w:60,h:16,type:"conveyor",conveyorDir:1,conveyorSpeed:2.5},
+    {x:260,y:340,w:60,h:16,type:"ice"},
+    {x:360,y:320,w:60,h:16,type:"crumble",crumbleDelay:.4},
+    {x:460,y:340,w:60,h:16,type:"solid"},
+    {x:560,y:370,w:80,h:30,type:"solid"},
+    {x:560,y:280,w:60,h:16,type:"moving",moveAxis:"y",moveRange:40,moveSpeed:1.5},
+    {x:480,y:230,w:60,h:16,type:"bounce",bouncePower:11},
+    {x:540,y:160,w:80,h:16,type:"solid"},
+    {x:540,y:80,w:16,h:80,type:"ladder"},
+    {x:460,y:80,w:80,h:16,type:"solid"},
+    {x:360,y:100,w:60,h:16,type:"moving",moveAxis:"x",moveRange:40,moveSpeed:1.8},
+    {x:240,y:80,w:60,h:16,type:"oneway"},
+    {x:140,y:100,w:60,h:16,type:"crumble",crumbleDelay:.35},
+    {x:40,y:80,w:80,h:16,type:"solid"},
+    {x:120,y:40,w:60,h:16,type:"solid"},
+    {x:220,y:50,w:60,h:16,type:"moving",moveAxis:"x",moveRange:30,moveSpeed:1.2},
+    {x:280,y:30,w:80,h:16,type:"solid"},
+    {x:0,y:260,w:60,h:16,type:"solid"},
+    {x:0,y:160,w:50,h:16,type:"solid"},
+  ],
+  hazards:[
+    {x:120,y:384,w:40,h:14,type:"spikes"},
+    {x:320,y:384,w:40,h:14,type:"spikes"},
+    {x:300,y:280,w:16,h:16,type:"fireball",moveAxis:"y",moveRange:100,moveSpeed:2},
+    {x:200,y:120,w:16,h:16,type:"fireball",moveAxis:"x",moveRange:40,moveSpeed:2.5},
+    {x:420,y:40,w:16,h:16,type:"fireball",moveAxis:"y",moveRange:30,moveSpeed:3},
+  ],
+  collectibles:[
+    {x:190,y:330,type:"coin"},{x:290,y:310,type:"coin"},{x:390,y:290,type:"coin"},
+    {x:500,y:310,type:"coin"},{x:580,y:250,type:"coin"},{x:570,y:130,type:"coin"},
+    {x:500,y:50,type:"coin"},{x:380,y:70,type:"coin"},{x:160,y:10,type:"coin"},
+    {x:60,y:50,type:"gem",points:500},{x:30,y:230,type:"1up"},
+    {x:40,y:50,type:"key",id:"blue"},
+  ],
+  enemies:[
+    {x:480,y:324,type:"walker",range:30},
+    {x:560,y:144,type:"walker",range:50},
+    {x:480,y:64,type:"walker",range:50},
+    {x:260,y:64,type:"flyer",moveAxis:"y",moveRange:20,moveSpeed:1.5},
+    {x:60,y:64,type:"walker",range:50},
+  ],
+  doors:[{x:300,y:-2,w:24,h:32,keyRequired:"blue"}],
+},
 ]; // end LEVELS
 
 // ═══════════════════════════════════════════════════
@@ -326,8 +758,10 @@ const LEVELS=[
 // ═══════════════════════════════════════════════════
 
 let state='title'; // title, select, playing, dead, complete, gameover
-let score=0,totalCoins=0,levelIdx=0,levelsUnlocked=1;
+const START_LIVES=3;
+let score=0,totalCoins=0,levelIdx=0,levelsUnlocked=1,lives=START_LIVES;
 let arcadeScoreSubmitted=false;
+let selectPage=0;const LEVELS_PER_PAGE=6;
 let screenShake=0,flashTimer=0;
 let cam={x:0,y:0};
 
@@ -378,13 +812,16 @@ function justPressed(k){
 }
 
 // Start/select listeners
-cv.addEventListener('click',()=>{ea();if(state==='title')state='select'});
+cv.addEventListener('click',()=>{ea();if(state==='title'){selectPage=0;state='select'}});
 window.addEventListener('keydown',e=>{
   ea();
-  if(state==='title'){state='select';return}
+  if(state==='title'){selectPage=0;state='select';return}
   if(state==='select'){
     const n=parseInt(e.key);
-    if(n>=1&&n<=LEVELS.length&&n<=levelsUnlocked){levelIdx=n-1;arcadeScoreSubmitted=false;startLevel()}
+    if(n>=1&&n<=LEVELS.length&&n<=levelsUnlocked){levelIdx=n-1;arcadeScoreSubmitted=false;lives=START_LIVES;startLevel()}
+    const totalPg=Math.ceil(LEVELS.length/LEVELS_PER_PAGE);
+    if(e.key==='ArrowLeft'||e.key==='a'){selectPage=Math.max(0,selectPage-1);e.preventDefault()}
+    if(e.key==='ArrowRight'||e.key==='d'){selectPage=Math.min(totalPg-1,selectPage+1);e.preventDefault()}
   }
   if(state==='dead'&&P.respawnTimer<=0)startLevel();
   if(state==='complete'){
@@ -454,11 +891,11 @@ function update(){
   if(state==='playing'&&!P.alive){
     P.respawnTimer--;
     if(P.respawnTimer<=0){
-      if(score<100){
+      lives--;
+      if(lives<=0){
         state='gameover';
         queueNeonRunnerScore(score);
       }else{
-        score=Math.max(0,score-100);
         startLevel();
       }
     }
@@ -719,6 +1156,7 @@ function update(){
       if(c.type==='coin'){score+=50;totalCoins++;SFX.coin();boom(cx,cy,curTheme.accent2,6,2)}
       if(c.type==='gem'){score+=(c.points||500);SFX.gem();boom(cx,cy,'#fff',8,3)}
       if(c.type==='key'){P.keys.push(c.id);SFX.key();boom(cx,cy,curTheme.accent,10,3)}
+      if(c.type==='1up'){lives++;SFX.oneup();boom(cx,cy,'#ff6699',10,3);boom(cx,cy,'#fff',6,2)}
     }
   });
 
@@ -780,6 +1218,21 @@ function draw(){
 
   if(state==='title'){drawTitle();C.restore();return}
   if(state==='select'){drawSelect();C.restore();return}
+
+  // Level 1 background image (parallax pan)
+  if(levelIdx===0&&L1_BG.loaded){
+    const img=L1_BG.img;
+    const ar=GW/GH,iar=img.width/img.height;
+    let sw,sh;
+    if(iar>=ar){sh=img.height;sw=sh*ar}else{sw=img.width;sh=sw/ar}
+    const extraX=Math.max(0,img.width-sw);
+    const px=Math.max(0,Math.min(1,(P.x)/(GW-P.w||1)));
+    const sx=(extraX/2)+((px-.5)*extraX*L1_BG.panStrength);
+    const sy=(img.height-sh)/2;
+    C.drawImage(img,sx,sy,sw,sh,0,0,GW,GH);
+    C.fillStyle=`rgba(0,0,0,${L1_BG.darkenAlpha})`;
+    C.fillRect(0,0,GW,GH);
+  }
 
   // Stars
   if(curTheme.stars){
@@ -939,6 +1392,13 @@ function draw(){
       C.beginPath();C.arc(c.x,cy-3,4,0,Math.PI*2);C.fill();
       C.fillRect(c.x-1,cy+1,2,7);
       C.fillRect(c.x-3,cy+6,3,2);
+    }else if(c.type==='1up'){
+      C.fillStyle='#ff4466';C.shadowColor='#ff2244';C.shadowBlur=6;
+      C.beginPath();C.arc(c.x,cy,6,0,Math.PI*2);C.fill();
+      C.shadowBlur=0;
+      C.fillStyle='#fff';C.font='7px "Press Start 2P"';C.textAlign='center';
+      C.fillText('1',c.x,cy+3);
+      C.textAlign='left';
     }
     C.shadowBlur=0;
   });
@@ -1045,11 +1505,15 @@ function drawHUD(){
   C.font='8px "Press Start 2P"';
   C.fillText('SCORE '+String(score).padStart(6,'0'),8,16);
   C.shadowBlur=0;
+  C.fillStyle='#ff4466';C.shadowColor='#ff2244';C.shadowBlur=3;
+  C.font='7px "Press Start 2P"';
+  C.fillText('LIVES '+lives,8,26);
+  C.shadowBlur=0;
 
   // Keys
   P.keys.forEach((k,i)=>{
     const kc=k==='red'?'#ff4444':k==='gold'?'#ffaa00':'#4488ff';
-    C.fillStyle=kc;C.beginPath();C.arc(8+i*16,28,4,0,Math.PI*2);C.fill();
+    C.fillStyle=kc;C.beginPath();C.arc(8+i*16,38,4,0,Math.PI*2);C.fill();
   });
 
   // Level name
@@ -1068,11 +1532,11 @@ function drawHUD(){
   // Dash cooldown
   if(P.dashCooldown>0){
     const pct=1-P.dashCooldown/30;
-    C.fillStyle='rgba(255,255,255,.2)';C.fillRect(GW-50,22,30,3);
-    C.fillStyle=curTheme.accent;C.fillRect(GW-50,22,30*pct,3);
+    C.fillStyle='rgba(255,255,255,.2)';C.fillRect(GW-50,32,30,3);
+    C.fillStyle=curTheme.accent;C.fillRect(GW-50,32,30*pct,3);
   }else{
     C.fillStyle=curTheme.accent;C.font='6px "Press Start 2P"';C.textAlign='right';
-    C.fillText('DASH ✓',GW-8,28);
+    C.fillText('DASH ✓',GW-8,38);
   }
 
   C.restore();
@@ -1125,10 +1589,17 @@ function drawSelect(){
   C.font='16px "Press Start 2P"';C.fillText('SELECT LEVEL',GW/2,50);
   C.shadowBlur=0;
 
-  LEVELS.forEach((lv,i)=>{
+  const perPage=LEVELS_PER_PAGE;
+  const startIdx=selectPage*perPage;
+  const endIdx=Math.min(startIdx+perPage,LEVELS.length);
+  const totalPages=Math.ceil(LEVELS.length/perPage);
+
+  for(let i=startIdx;i<endIdx;i++){
+    const lv=LEVELS[i];
+    const pi=i-startIdx;
     const locked=i>=levelsUnlocked;
-    const col=i%2===0?GW/2-130:GW/2+130;
-    const row=Math.floor(i/2);
+    const col=pi%2===0?GW/2-130:GW/2+130;
+    const row=Math.floor(pi/2);
     const y=90+row*80;
     const th=THEMES[lv.theme];
 
@@ -1148,14 +1619,19 @@ function drawSelect(){
     C.fillText(locked?'LOCKED':lv.name,col,y+22);
     C.fillStyle=locked?'#333':'#888';
     C.font='7px "Press Start 2P"';
-    C.fillText(locked?'• • •':`PRESS ${i+1}  •  ${lv.theme.toUpperCase()}`,col,y+42);
-  });
+    const numHint=i<9?`PRESS ${i+1}  •  `:'';
+    C.fillText(locked?'• • •':`${numHint}${lv.theme.toUpperCase()}`,col,y+42);
+  }
+
+  if(totalPages>1){
+    C.fillStyle='#888';C.font='7px "Press Start 2P"';C.textAlign='center';
+    const arrows=(selectPage>0?'◀  ':'   ')+'PAGE '+(selectPage+1)+'/'+totalPages+(selectPage<totalPages-1?'  ▶':'');
+    C.fillText(arrows,GW/2,GH-36);
+  }
 
   C.fillStyle='#666';C.textAlign='center';C.font='7px "Press Start 2P"';
-  C.fillText('TAP A LEVEL OR PRESS 1-'+Math.min(LEVELS.length,levelsUnlocked),GW/2,GH-20);
+  C.fillText('TAP LEVEL  •  ◀▶ PAGES  •  1-'+Math.min(9,levelsUnlocked)+' KEYS',GW/2,GH-18);
   C.restore();
-
-  // Handle click on level select
 }
 
 // Click handler for level select
@@ -1164,15 +1640,24 @@ cv.addEventListener('click',e=>{
   const rect=cv.getBoundingClientRect();
   const mx=(e.clientX-rect.left)/rect.width*GW;
   const my=(e.clientY-rect.top)/rect.height*GH;
-  LEVELS.forEach((lv,i)=>{
-    if(i>=levelsUnlocked)return;
-    const col=i%2===0?GW/2-130:GW/2+130;
-    const row=Math.floor(i/2);
+  const perPage=LEVELS_PER_PAGE;
+  const startIdx=selectPage*perPage;
+  const endIdx=Math.min(startIdx+perPage,LEVELS.length);
+  const totalPages=Math.ceil(LEVELS.length/perPage);
+  for(let i=startIdx;i<endIdx;i++){
+    if(i>=levelsUnlocked)continue;
+    const pi=i-startIdx;
+    const col=pi%2===0?GW/2-130:GW/2+130;
+    const row=Math.floor(pi/2);
     const y=90+row*80;
     if(mx>col-100&&mx<col+100&&my>y&&my<y+60){
-      levelIdx=i;arcadeScoreSubmitted=false;startLevel();
+      levelIdx=i;arcadeScoreSubmitted=false;lives=START_LIVES;startLevel();
     }
-  });
+  }
+  if(totalPages>1&&my>GH-50&&my<GH-25){
+    if(mx<GW/2)selectPage=Math.max(0,selectPage-1);
+    else selectPage=Math.min(totalPages-1,selectPage+1);
+  }
 });
 
 function drawDead(){
