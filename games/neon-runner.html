@@ -125,6 +125,28 @@ const LEVEL_BG={
   3:mkLevelBg('neon-runner-background-level-4.jpg',{darkenAlpha:.38,zoom:1.25,panStrength:.85}),
 };
 
+// Level-select card thumbnails (optional per level: selectCardImage)
+const SELECT_CARD_IMAGES={};
+function getSelectCardImage(src){
+  if(!src||typeof src!=='string'||!src.trim())return null;
+  const s=src.trim();
+  if(!SELECT_CARD_IMAGES[s]){
+    const img=new Image();
+    img.src=s;
+    SELECT_CARD_IMAGES[s]=img;
+  }
+  return SELECT_CARD_IMAGES[s];
+}
+function drawImageCover(img,dx,dy,dw,dh){
+  const iw=img.naturalWidth,ih=img.naturalHeight;
+  if(!iw||!ih)return;
+  const ir=iw/ih,dr=dw/dh;
+  let sw,sh,sx,sy;
+  if(ir>=dr){sh=ih;sw=sh*dr;sx=(iw-sw)/2;sy=0;}
+  else{sw=iw;sh=sw/dr;sx=0;sy=(ih-sh)/2;}
+  C.drawImage(img,sx,sy,sw,sh,dx,dy,dw,dh);
+}
+
 // ─── Colors / Themes ───
 const THEMES={
   neon:{bg:'#06061a',plat:'#00e5ff',platEdge:'#0088aa',accent:'#ff00cc',accent2:'#39ff14',text:'#00e5ff',hazard:'#ff2244',
@@ -173,6 +195,8 @@ const EMBEDDED_LEVELS=[
   ],
   enemies:[{x:330,y:274,type:"walker",range:80}],
   doors:[],
+  background:{src:"neon-runner-background-level-1.jpg",darkenAlpha:.34,zoom:1.25,panStrength:.85},
+  selectCardImage:"neon-runner-card-level-1.jpg",
 },
 
 // ── LEVEL 2: Cavern Climb ──
@@ -211,6 +235,8 @@ const EMBEDDED_LEVELS=[
     {x:300,y:64,type:"walker",range:50},
   ],
   doors:[{x:530,y:44,w:24,h:32,keyRequired:"red"}],
+  background:{src:"neon-runner-background-level-2.jpg",darkenAlpha:.34,zoom:1.25,panStrength:.85},
+  selectCardImage:"neon-runner-card-level-2.jpg",
 },
 
 // ── LEVEL 3: Neon Dash ──
@@ -249,6 +275,8 @@ const EMBEDDED_LEVELS=[
     {x:480,y:174,type:"walker",range:40},
   ],
   doors:[],
+  background:{src:"neon-runner-background-level-3.jpg",darkenAlpha:.34,zoom:1.25,panStrength:.85},
+  selectCardImage:"neon-runner-card-level-3.jpg",
 },
 
 // ── LEVEL 4: Lava Fortress ──
@@ -289,6 +317,8 @@ const EMBEDDED_LEVELS=[
     {x:540,y:44,type:"walker",range:60},
   ],
   doors:[{x:590,y:28,w:24,h:32,keyRequired:"gold"}],
+  background:{src:"neon-runner-background-level-4.jpg",darkenAlpha:.38,zoom:1.25,panStrength:.85},
+  selectCardImage:"neon-runner-card-level-4.jpg",
 },
 
 // ── LEVEL 5: Sky Garden ──
@@ -1707,14 +1737,25 @@ function drawSelect(){
     const y=90+row*80;
     const th=THEMES[lv.theme];
 
-    C.fillStyle=locked?'rgba(255,255,255,.06)':'rgba(255,255,255,.08)';
     C.strokeStyle=locked?'rgba(255,255,255,.1)':th.plat;
     C.lineWidth=locked?1:1.5;
     if(!locked){C.shadowColor=th.plat;C.shadowBlur=4}
 
     const bw=200,bh=60;
-    C.fillRect(col-bw/2,y,bw,bh);
-    C.strokeRect(col-bw/2,y,bw,bh);
+    const bx=col-bw/2;
+    const cImg=lv.selectCardImage?getSelectCardImage(lv.selectCardImage):null;
+    if(cImg&&cImg.complete&&cImg.naturalWidth){
+      C.save();
+      C.beginPath();C.rect(bx,y,bw,bh);C.clip();
+      drawImageCover(cImg,bx,y,bw,bh);
+      C.restore();
+      C.fillStyle=locked?'rgba(0,0,0,.62)':'rgba(0,0,0,.42)';
+      C.fillRect(bx,y,bw,bh);
+    }else{
+      C.fillStyle=locked?'rgba(255,255,255,.06)':'rgba(255,255,255,.08)';
+      C.fillRect(bx,y,bw,bh);
+    }
+    C.strokeRect(bx,y,bw,bh);
     C.shadowBlur=0;
 
     C.textAlign='center';

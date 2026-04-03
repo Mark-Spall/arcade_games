@@ -152,7 +152,14 @@
         "range": 80
       }
     ],
-    "doors": []
+    "doors": [],
+    "background": {
+      "src": "neon-runner-background-level-1.jpg",
+      "darkenAlpha": 0.34,
+      "zoom": 1.25,
+      "panStrength": 0.85
+    },
+    "selectCardImage": "neon-runner-card-level-1.jpg"
   },
   {
     "name": "CAVERN CLIMB",
@@ -360,7 +367,14 @@
         "h": 32,
         "keyRequired": "red"
       }
-    ]
+    ],
+    "background": {
+      "src": "neon-runner-background-level-2.jpg",
+      "darkenAlpha": 0.34,
+      "zoom": 1.25,
+      "panStrength": 0.85
+    },
+    "selectCardImage": "neon-runner-card-level-2.jpg"
   },
   {
     "name": "NEON DASH",
@@ -562,7 +576,14 @@
         "range": 40
       }
     ],
-    "doors": []
+    "doors": [],
+    "background": {
+      "src": "neon-runner-background-level-3.jpg",
+      "darkenAlpha": 0.34,
+      "zoom": 1.25,
+      "panStrength": 0.85
+    },
+    "selectCardImage": "neon-runner-card-level-3.jpg"
   },
   {
     "name": "LAVA FORTRESS",
@@ -803,7 +824,14 @@
         "h": 32,
         "keyRequired": "gold"
       }
-    ]
+    ],
+    "background": {
+      "src": "neon-runner-background-level-4.jpg",
+      "darkenAlpha": 0.38,
+      "zoom": 1.25,
+      "panStrength": 0.85
+    },
+    "selectCardImage": "neon-runner-card-level-4.jpg"
   },
   {
     "name": "SKY GARDEN",
