@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 240" width="400" height="240">
+  <defs>
+    <linearGradient id="sky26" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1a0520"/>
+      <stop offset="100%" stop-color="#080210"/>
+    </linearGradient>
+    <linearGradient id="beam26a" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ff00c8" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#ff00c8" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="beam26b" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#00d4ff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="240" fill="url(#sky26)"/>
+  <path d="M0 180 Q100 120 200 140 T400 100 L400 240 L0 240 Z" fill="#140818"/>
+  <path d="M175 200 L200 35 L225 200 Z" fill="url(#beam26a)"/>
+  <path d="M188 195 L200 75 L212 195 Z" fill="url(#beam26b)"/>
+  <circle cx="200" cy="172" r="7" fill="#ff00c8" opacity="0.95"/>
+  <rect x="172" y="164" width="56" height="9" rx="2" fill="#2a1030" stroke="#00d4ff" stroke-width="0.6" opacity="0.85"/>
+  <text x="318" y="228" font-family="system-ui,Segoe UI,sans-serif" font-size="22" font-weight="700" fill="#ff00c8" opacity="0.9" text-anchor="end">2026</text>
+</svg>

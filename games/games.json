@@ -17,6 +17,14 @@
     "tags": ["Shooter", "Arcade", "Neon"]
   },
   {
+    "id": "neon-blaster-2026",
+    "title": "Neon Blaster 2026",
+    "href": "/games/neon-blaster-2026.html",
+    "image": "/games/posters/neon-blaster-2026.svg",
+    "description": "Expanded canyon shooter: bosses, aux weapons, bloom, and deeper waves.",
+    "tags": ["Shooter", "Arcade", "Neon"]
+  },
+  {
     "id": "void-defender",
     "title": "Void Defender",
     "href": "/games/void-defender.html",
