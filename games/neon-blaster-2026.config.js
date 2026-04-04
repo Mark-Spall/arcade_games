@@ -20,7 +20,7 @@ const CONFIG = {
     size: { w: 34, h: 32 },
     startY: 0.82,
     invincibilityFrames: 90,
-    maxLives: 5, maxShields: 3, maxBombs: 3,
+    maxLives: 5, maxShields: 3, maxBombs: 3, maxGravityWells: 3,
     weapons: [
       { name: 'Single',  cooldown: 11, bullets: [{ ox: 0, oy: -14, vx: 0, vy: -9, color: '#ff00c8', dmg: 1 }] },
       { name: 'Dual',    cooldown: 8,  bullets: [
@@ -104,9 +104,28 @@ const CONFIG = {
     baseChance: 0.085,
     upgradeStartLevel: 8, shieldStartLevel: 10, bombStartLevel: 12,
     seekerStartLevel: 6, mineStartLevel: 8, rearStartLevel: 11,
+    gravityStartLevel: 13,
     upgradeChance: 0.18, shieldChance: 0.30, bombChance: 0.20,
     lifeChance: 0.30, pityUpgradeChance: 0.55,
     seekerChance: 0.22, mineChance: 0.18, rearChance: 0.15,
+    gravityChance: 0.12,
+  },
+
+  gravityWell: {
+    duration: 200,
+    growDuration: 32,
+    maxRadius: 88,
+    pullRadiusMax: 155,
+    pullMul: 1.45,
+    pullStrength: 26,
+    pullCap: 7.5,
+    swirlStrength: 4.8,
+    consumeRadius: 16,
+    collapseDamageRadius: 120,
+    playerPullMul: 0.55,
+    playerSwirlMul: 0.7,
+    bossPullScale: 0.22,
+    spawnCooldown: 18,
   },
 
   auxWeapons: {
