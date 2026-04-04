@@ -212,19 +212,25 @@ class MusicManager {
   constructor(cfg) {
     this.cfg = cfg;
     this.ok = typeof Tone !== 'undefined';
-    if (!this.ok) return;
     this.started = false;
     this.currentIntensity = -1;
     this.layers = {};
     this.activeThemeId = null;
+    this._graphBuilt = false;
+    this.master = null;
+    this.reverb = null;
+  }
 
-    this.master = new Tone.Gain(cfg.masterVolume).toDestination();
+  /** Build Tone nodes only after Tone.start() (user gesture) — avoids AudioContext warnings on load. */
+  _buildGraph() {
+    if (this._graphBuilt || !this.ok) return;
+    this.master = new Tone.Gain(this.cfg.masterVolume).toDestination();
     this.reverb = new Tone.Reverb({ decay: 2.4, wet: 0.2 }).connect(this.master);
     this.reverb.ready = this.reverb.generate();
-
-    for (const [name, lc] of Object.entries(cfg.layers)) {
+    for (const [name, lc] of Object.entries(this.cfg.layers)) {
       this.layers[name] = this._build(name, lc);
     }
+    this._graphBuilt = true;
   }
 
   _build(name, lc) {
@@ -417,6 +423,8 @@ class MusicManager {
     if (!this.ok || this.started) return;
     try {
       await Tone.start();
+      this._buildGraph();
+      if (!this._graphBuilt) return;
       await this.reverb.ready;
       Tone.Transport.bpm.value = this.cfg.bpm;
       for (const l of Object.values(this.layers)) l.seq.start(0);
@@ -430,7 +438,9 @@ class MusicManager {
   stop() {
     if (!this.ok || !this.started) return;
     Tone.Transport.stop();
-    for (const l of Object.values(this.layers)) l.gain.gain.rampTo(0, 0.3);
+    if (this._graphBuilt) {
+      for (const l of Object.values(this.layers)) l.gain.gain.rampTo(0, 0.3);
+    }
     this.started = false;
     this.currentIntensity = -1;
     this.activeThemeId = null;
@@ -1679,7 +1689,7 @@ class HUD {
     ctx.font = '500 12px Rajdhani';
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(57,255,20,0.85)';
-    if (Math.sin(Date.now() * 0.004) > 0) ctx.fillText('PRESS ANY KEY TO SKIP', W / 2, H - 28);
+    if (Math.sin(Date.now() * 0.004) > 0) ctx.fillText('ENTER OR CLICK / TAP TO SKIP', W / 2, H - 28);
     ctx.restore();
   }
 
@@ -1695,7 +1705,7 @@ class HUD {
     ctx.font = '500 12px Rajdhani';
     ctx.textAlign = 'center';
     ctx.fillStyle = CONFIG.colors.blue;
-    if (Math.sin(Date.now() * 0.004) > 0) ctx.fillText('PRESS ANY KEY / TAP TO CONTINUE', W / 2, H - 28);
+    if (Math.sin(Date.now() * 0.004) > 0) ctx.fillText('ENTER OR CLICK / TAP TO CONTINUE', W / 2, H - 28);
     ctx.restore();
   }
 
@@ -1731,7 +1741,7 @@ class HUD {
     ctx.shadowBlur = 0;
 
     ctx.font = '500 13px Rajdhani'; ctx.fillStyle = CONFIG.colors.green;
-    if (Math.sin(t * 3) > 0) ctx.fillText('PRESS ANY KEY / TAP TO START', W / 2, 400);
+    if (Math.sin(t * 3) > 0) ctx.fillText('ENTER OR CLICK / TAP TO START', W / 2, 400);
 
     ctx.font = '300 11px Rajdhani'; ctx.fillStyle = '#666';
     ctx.fillText('ARROWS / WASD — MOVE     SPACE / Z — FIRE     B — BOMB', W / 2, 450);
@@ -1777,7 +1787,7 @@ class HUD {
     }
 
     ctx.font = '500 12px Rajdhani'; ctx.fillStyle = CONFIG.colors.green;
-    if (Math.sin(Date.now() * 0.003) > 0) ctx.fillText('PRESS ANY KEY / TAP TO RESTART', W / 2, 450);
+    if (Math.sin(Date.now() * 0.003) > 0) ctx.fillText('ENTER OR CLICK / TAP TO RESTART', W / 2, 450);
 
     ctx.restore();
   }
@@ -1820,8 +1830,17 @@ class Game {
     this._resize();
     window.addEventListener('resize', () => this._resize());
 
-    // Start listeners
-    const startHandler = () => {
+    // Start listeners — movement / fire keys must NOT skip story (they were dismissing the crawl in one frame).
+    const isGameControlKey = (code) => (
+      code === 'ArrowLeft' || code === 'ArrowRight' || code === 'ArrowUp' || code === 'ArrowDown' ||
+      code === 'KeyA' || code === 'KeyD' || code === 'KeyW' || code === 'KeyS' ||
+      code === 'Space' || code === 'KeyZ' || code === 'KeyB'
+    );
+    const startHandler = (e) => {
+      if (e && e.type === 'keydown') {
+        if (e.repeat) return;
+        if (isGameControlKey(e.code)) return;
+      }
       this.audio.ensure();
       this.music.start();
       if (this.state === 'title_crawl') {
