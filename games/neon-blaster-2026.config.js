@@ -1,6 +1,7 @@
 /**
  * Neon Blaster 2026 — game tuning (load before main script).
- * Story copy: neon-blaster-2026-story.json (see CONFIG.story.url)
+ * Story copy: neon-blaster-2026-story.json (see CONFIG.story.url).
+ * The same JSON is embedded in neon-blaster-2026.html (#neon-blaster-story-embed) so interludes work without HTTP; refresh the embed when you edit the .json.
  */
 (function (global) {
 'use strict';

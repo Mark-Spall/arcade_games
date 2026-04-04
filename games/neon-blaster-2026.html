@@ -48,6 +48,8 @@
   </div>
 </div>
 
+<!-- Inlined copy of neon-blaster-2026-story.json so title crawl + wave interludes work without HTTP (e.g. file://). Fetch below overrides when served. -->
+<script type="application/json" id="neon-blaster-story-embed">{"titleCrawl":{"scrollSpeed":0.46,"lineGap":17,"lineHeight":22,"lines":["","STARDATE: 2187 // SECTOR NULL","","THE FABRIC OF SPACE FRACTURED.","THE VOID DRANK YOUR ENTIRE SQUADRON.","","YOU AWOKE IN A NEON PURGATORY.","NO COMS. NO STARS. NO MERCY.","JUST THE HUM OF A DYING ENGINE.","","THE GRID IS AN INFINITE COFFIN.","THE SWARM SPEAKS ONLY IN VIOLENCE.","","BURN THE SKY.","TEAR THROUGH THE VEIL.","FIND THE EXIT—OR BECOME THE STATIC.","","NEON BLASTER: NOIR PROTOCOL // 2026","","INITIATE PILOT BRAIN-LINK — INSERT COIN",""]},"betweenLevels":[{"afterLevel":1,"lines":["REALITY IS LEAKING. STATIC SCREAMS IN THE COCKPIT.","THREAT SCAN: WEAK PULSE SWARMERS DETECTED.","FIND YOUR FLOW. THEY MOVE LIKE A FEVER DREAM."]},{"afterLevel":2,"lines":["THE SILENCE OUT HERE IS DEAFENING.","NEW CONTACTS: ORANGE STRIKE-FIGHTERS ON THE HORIZON.","THEY DON'T AIM FOR WHERE YOU ARE—BUT WHERE YOU'RE GOING."]},{"afterLevel":3,"lines":["THE STARS AREN'T MOVING. YOU ARE FALLING UPWARD.","ENTERING THE OBSIDIAN THROAT: THE CANYON IS ALIVE.","GRAZE THE GLOWING WALLS OR FEED THE ABYSS."]},{"afterLevel":4,"lines":["SENSORS BLEEDING RED. THE DEEP GIVES BIRTH TO METAL.","BOSS ALERT: THE SENTINEL AWAKES. IT IS A GEOMETRIC GOD.","CRACK THE SHELL BEFORE THE MINIONS SWALLOW YOU WHOLE."]},{"afterLevel":5,"lines":["TITAN DOWN. BUT THE ECHOES ARE MULTIPLYING.","WARNING: MITOSIS-HEXES INBOUND. ONE KILL BECOMES THREE.","SURGICAL PRECISION REQUIRED. DON'T GET CROWDED."]},{"afterLevel":6,"lines":["THE COLD IS BITING INTO THE LIFE SUPPORT.","HEAVY IRON IS ROLLING IN. SLOW DRUMS OF WAR.","SCAVENGE THE WRECKS—SEEKER PODS ARE HIDDEN IN THE SMOKE."]},{"afterLevel":7,"lines":["YOU'RE TALKING TO THE DASHBOARD. THE DASHBOARD ISN'T ANSWERING.","GHOST SIGNALS DETECTED. CLOAKED ASSASSINS IN THE MIST.","UPGRADE PROTOCOLS UNLOCKED: MINES ARE NOW ON THE MENU."]},{"afterLevel":8,"lines":["THE CANYON IS NARROWING. LIKE A PREDATOR'S JAW.","A SYMPHONY OF CHAOS: EVERY SHIP TYPE IS HUNTING YOU NOW.","EYES UP—SHIELD ORBS ARE YOUR ONLY TICKET TO LV 10."]},{"afterLevel":9,"lines":["THE VOID IS WHISPERING. SOMETHING ANCIENT IS WATCHING.","SECOND SENTINEL DETECTED. IT HAS LEARNED YOUR DANCE.","BOMBS ARE NO LONGER OPTIONAL. FIND THEM IN THE DEBRIS."]},{"afterLevel":10,"lines":["YOU'RE NOT A PILOT ANYMORE. YOU'RE A PART OF THE CIRCUIT.","ORBITAL STRIKE-DIVERS INBOUND. THEY CIRCLE LIKE VULTURES.","REAR-ARC CANNONS DETECTED IN CARGO DROPS. WATCH YOUR BACK."]},{"afterLevel":11,"lines":["YOU'VE PASSED THE POINT OF NO RETURN. EARTH IS A MYTH.","ELITE PHALANX FORMING. NO MORE FODDER. ONLY KILLERS.","EQUIP THE FULL AUX SUITE—YOU'LL NEED EVERY BARREL."]},{"afterLevel":12,"lines":["YOUR FUEL IS LARGELY ADRENALINE AT THIS POINT.","THE ENDGAME MIX IS LIVE. CLOAKERS AND HEAVIES ARE SYNCHING.","BOMB CHARGES ARE PLENTIFUL. PAINT THE VOID WHITE."]},{"afterLevel":13,"lines":["THE CONSTELLATIONS ARE SCREAMING. YOU ARE TOO DEEP.","GRID OVERLOAD. THE SKY IS 90% PROJECTILE, 10% HOPE.","USE THE CANYON'S TEETH TO SHIELD YOUR FLANKS."]},{"afterLevel":14,"lines":["IFF TAGS READ: 'TARGET'. EVERYTHING IS A BULLET.","THIRD SENTINEL ASCENDING. IT IS A REQUIEM IN MOTION.","PHASE THREE IS A MEATGRINDER. SAVE YOUR ULTIMATE."]},{"afterLevel":15,"lines":["THREE GODS BROKEN. THE NEON SIMULATION IS GLITCHING.","APOCALYPSE FORMATIONS: ORBITERS AND CLOAKERS IN LOCKSTEP.","THE LOOT TABLE IS WIDE OPEN. BECOME THE STORM."]},{"afterLevel":16,"lines":["THE LOGBOOK ENDS HERE. YOU ARE WRITING IN BLOOD NOW.","SIX-DIVER CHAOS. THE SCREEN IS A GALAXY OF TEETH.","STAY FLUID. IF YOU STOP MOVING, YOU'RE A MEMORY."]},{"afterLevel":17,"lines":["IS THAT THE EXIT? OR JUST THE LIGHT AT THE END OF THE TUNNEL?","THE ROSTER THINS. ONLY THE ELITES REMAIN TO BURY YOU.","THE CANYON IS CLOSING IN. DON'T LET THEM PIN THE WINGS."]},{"afterLevel":18,"lines":["HOME IS A GHOST. THE GRID IS THE ONLY TRUTH.","ARMOR SPONGES DETECTED. THEY WANT TO DROWN YOU IN BULLETS.","LOAD PIERCE ROUNDS. TEAR THROUGH THEIR PRIDE."]},{"afterLevel":19,"lines":["ONE LAST THRESHOLD. THE HEART OF THE MACHINE.","FINAL SENTINEL CYCLE. IT ISN'T FIGHTING—IT'S SURVIVING YOU.","GRAB THE POWER ORBS. EXTEND THE GLORY."]},{"afterLevel":20,"lines":["YOU'RE A GHOST IN THE MACHINE. A NEON LEGEND.","ESCAlATION INFINITE. THE SIMULATION HAS GONE MAD.","THERE IS NO HOME. ONLY THE HIGH SCORE. GO DEEPER."]}]}</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
 <script src="neon-blaster-2026.config.js"></script>
 <script>
@@ -55,20 +57,81 @@
 'use strict';
 const { PERF, CONFIG, resolveWaveMusicTheme } = window.NeonBlaster2026Config;
 let STORY = { titleCrawl: { lines: [], scrollSpeed: 0.45, lineGap: 16, lineHeight: 22 }, betweenLevels: [] };
+
+function mergeStoryInto(base, incoming) {
+  if (!incoming) return;
+  base.titleCrawl = { ...base.titleCrawl, ...(incoming.titleCrawl || {}) };
+  if (incoming.betweenLevels && incoming.betweenLevels.length) base.betweenLevels = incoming.betweenLevels;
+}
+
+(function loadStoryFromEmbed() {
+  const el = document.getElementById('neon-blaster-story-embed');
+  if (!el) return;
+  try { mergeStoryInto(STORY, JSON.parse(el.textContent)); } catch (e) {}
+})();
+
 try {
   const r = await fetch((CONFIG.story && CONFIG.story.url) || 'neon-blaster-2026-story.json', { cache: 'no-cache' });
-  if (r.ok) {
-    const j = await r.json();
-    STORY.titleCrawl = { ...STORY.titleCrawl, ...(j.titleCrawl || {}) };
-    if (j.betweenLevels) STORY.betweenLevels = j.betweenLevels;
-  }
+  if (r.ok) mergeStoryInto(STORY, await r.json());
 } catch (e) {}
+
+function typesForLevel(level) {
+  const tp = CONFIG.waves.typeProgression;
+  let types = tp[0].types;
+  for (let i = 0; i < tp.length; i++) {
+    if (level >= tp[i].minLevel) types = tp[i].types;
+  }
+  return types;
+}
+
+function canyonActiveForLevel(level) {
+  const w = CONFIG.waves;
+  if (level < w.canyonFirstLevel) return false;
+  const offset = level - w.canyonFirstLevel;
+  const cycleLen = w.canyonCycle[0] + w.canyonCycle[1];
+  const pos = offset % cycleLen;
+  return pos < w.canyonCycle[0];
+}
+
+function dropHintLineForLevel(nextLevel) {
+  const d = CONFIG.drops;
+  if (nextLevel === d.seekerStartLevel) return 'SEEKER PODS CAN DROP FROM WRECKS.';
+  if (nextLevel === d.mineStartLevel) return 'MINES AND WEAPON UPGRADES CAN SPAWN IN LOOT.';
+  if (nextLevel === d.shieldStartLevel) return 'SHIELD ORBS CAN DROP — HOLD POSITION LONGER.';
+  if (nextLevel === d.rearStartLevel) return 'REAR ARC PICKUPS CAN DROP.';
+  if (nextLevel === d.bombStartLevel) return 'BOMB CHARGES IN THE LOOT TABLE.';
+  return null;
+}
+
+function buildFallbackInterludeLines(completed, nextLevel) {
+  const w = CONFIG.waves;
+  const boss = w.bossEvery && nextLevel > 1 && nextLevel % w.bossEvery === 0;
+  const canyon = canyonActiveForLevel(nextLevel);
+  const types = typesForLevel(nextLevel);
+  const typeStr = types.map(t => t.toUpperCase()).join(', ');
+  const l1 = `SECTOR ${completed} CLEARED. NEXT WAVE: ${nextLevel}.`;
+  let l2, l3;
+  if (boss) {
+    l2 = 'SENTINEL BOSS — NOT A FORMATION. PHASES SPAWN MINIONS.';
+    l3 = 'SAVE A BOMB FOR THE LAST BAR OF HEALTH IF YOU CAN.';
+  } else if (canyon) {
+    l2 = 'THE CANYON IS LIVE — NARROW GAPS, MOVING WALLS.';
+    l3 = `HOSTILES: ${typeStr}.`;
+  } else {
+    l2 = `OPEN GRID — HOSTILES: ${typeStr}.`;
+    l3 = 'SPEED AND FIRE ESCALATE. USE THE SKY.';
+  }
+  const hint = dropHintLineForLevel(nextLevel);
+  if (hint) l3 = hint;
+  return [l1, l2, l3];
+}
 
 function getInterludeLines(story, levelAfterIncrement) {
   const completed = levelAfterIncrement - 1;
   if (completed < 1) return null;
   const entry = (story.betweenLevels || []).find(b => b.afterLevel === completed);
-  return entry && entry.lines && entry.lines.length ? entry.lines : null;
+  if (entry && entry.lines && entry.lines.length) return entry.lines;
+  return buildFallbackInterludeLines(completed, levelAfterIncrement);
 }
 
 
