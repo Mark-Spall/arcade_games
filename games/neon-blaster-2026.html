@@ -53,7 +53,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
 <script src="neon-blaster-2026.config.js"></script>
 <script>
-(async function() {
+(function() {
 'use strict';
 const { PERF, CONFIG, resolveWaveMusicTheme } = window.NeonBlaster2026Config;
 let STORY = { titleCrawl: { lines: [], scrollSpeed: 0.45, lineGap: 16, lineHeight: 22 }, betweenLevels: [] };
@@ -70,10 +70,35 @@ function mergeStoryInto(base, incoming) {
   try { mergeStoryInto(STORY, JSON.parse(el.textContent)); } catch (e) {}
 })();
 
-try {
-  const r = await fetch((CONFIG.story && CONFIG.story.url) || 'neon-blaster-2026-story.json', { cache: 'no-cache' });
-  if (r.ok) mergeStoryInto(STORY, await r.json());
-} catch (e) {}
+// Optional override from JSON when served over HTTP — do not block first frame (await fetch was delaying Game/run).
+const _storyUrl = (CONFIG.story && CONFIG.story.url) || 'neon-blaster-2026-story.json';
+fetch(_storyUrl, { cache: 'no-cache' })
+  .then(r => (r.ok ? r.json() : null))
+  .then(j => { if (j) mergeStoryInto(STORY, j); })
+  .catch(() => {});
+
+/**
+ * Scroll offset so text is visible on frame one (same geometry as _drawScrollingLines: y = H + 100 - scroll + …).
+ * @param {'title'|'interlude'} kind — interlude uses a short block centered vertically so all lines show at once.
+ */
+function initialScrollForLines(lines, tc, kind) {
+  const H = CONFIG.world.height;
+  const gap = tc.lineGap ?? 14;
+  const lh = tc.lineHeight ?? 22;
+  const row = lh + gap;
+  const firstIdx = lines.findIndex(l => String(l).trim().length);
+  if (firstIdx < 0) return 0;
+  const lead = firstIdx * row;
+  const nonEmpty = lines.filter(l => String(l).trim().length).length;
+  let targetY;
+  if (kind === 'interlude' && nonEmpty <= 8) {
+    const blockH = nonEmpty * row;
+    targetY = Math.max(130, (H - blockH) / 2);
+  } else {
+    targetY = Math.min(H * 0.46, 340);
+  }
+  return Math.max(0, H + 100 + lead - targetY);
+}
 
 function typesForLevel(level) {
   const tp = CONFIG.waves.typeProgression;
@@ -456,7 +481,8 @@ class MusicManager {
 
   update(game) {
     if (!this.ok || !this.started) return;
-    if (game.state === 'title' || game.state === 'title_crawl' || game.state === 'gameover') {
+    if (game.state === 'title' || game.state === 'title_crawl' || game.state === 'gameover' ||
+        game.state === 'interlude' || game.state === 'interlude_delay') {
       this.setIntensity(0);
       return;
     }
@@ -1705,7 +1731,10 @@ class HUD {
     ctx.font = '500 12px Rajdhani';
     ctx.textAlign = 'center';
     ctx.fillStyle = CONFIG.colors.blue;
-    if (Math.sin(Date.now() * 0.004) > 0) ctx.fillText('ENTER OR CLICK / TAP TO CONTINUE', W / 2, H - 28);
+    const hint = game.state === 'interlude_delay'
+      ? 'ENTER OR TAP TO START NOW — OR WAIT A MOMENT'
+      : 'ENTER OR CLICK / TAP TO CONTINUE';
+    if (Math.sin(Date.now() * 0.004) > 0) ctx.fillText(hint, W / 2, H - 28);
     ctx.restore();
   }
 
@@ -1819,13 +1848,18 @@ class Game {
     this.score = 0; this.highScore = 0; this.lives = 3; this.level = 1;
     this.screenShake = 0; this.slowmo = 0; this.flashWhite = 0;
     this.scoreSubmitted = false;
-    this.titleCrawlScroll = 0;
     this.interludeScroll = 0;
     this.interludeLines = null;
     this.pendingSpawnLevel = 1;
+    /** Frames to wait after interlude story ends before spawning (60 ≈ 1s @ 60Hz). */
+    this.interludeDelayFrames = 0;
 
     const tc = this.story.titleCrawl && this.story.titleCrawl.lines && this.story.titleCrawl.lines.length;
     this.state = tc ? 'title_crawl' : 'title';
+    const tcrawl = this.story.titleCrawl || {};
+    this.titleCrawlScroll = this.state === 'title_crawl'
+      ? initialScrollForLines(tcrawl.lines || [], tcrawl, 'title')
+      : 0;
 
     this._resize();
     window.addEventListener('resize', () => this._resize());
@@ -1848,7 +1882,11 @@ class Game {
         return;
       }
       if (this.state === 'interlude') {
-        this._finishInterlude();
+        this._beginInterludePostDelay();
+        return;
+      }
+      if (this.state === 'interlude_delay') {
+        this._finishInterludeSpawn();
         return;
       }
       if (this.state === 'title' || this.state === 'gameover') this.start();
@@ -1880,15 +1918,26 @@ class Game {
     const sp = tc.scrollSpeed ?? 0.42;
     this.interludeScroll += sp;
     const lines = this.interludeLines || [];
-    if (this.interludeScroll > this._crawlTotalHeight(lines) + 60) this._finishInterlude();
+    if (this.interludeScroll > this._crawlTotalHeight(lines) + 60) this._beginInterludePostDelay();
   }
 
-  _finishInterlude() {
+  /** Story finished (scroll ended or player skipped) — brief pause, then spawn next wave. */
+  _beginInterludePostDelay() {
     if (this.state !== 'interlude') return;
+    const lines = this.interludeLines || [];
+    const maxScroll = this._crawlTotalHeight(lines) + 60;
+    this.interludeScroll = Math.min(this.interludeScroll, maxScroll);
+    this.state = 'interlude_delay';
+    this.interludeDelayFrames = 60;
+  }
+
+  _finishInterludeSpawn() {
+    if (this.state !== 'interlude_delay') return;
     this.state = 'playing';
     this.enemies = this.waveManager.spawn(this.pendingSpawnLevel);
     this.interludeLines = null;
     this.interludeScroll = 0;
+    this.interludeDelayFrames = 0;
   }
 
   _resize() {
@@ -1958,6 +2007,12 @@ class Game {
     }
     if (this.state === 'interlude') {
       this._advanceInterlude();
+      this.input.endFrame();
+      return;
+    }
+    if (this.state === 'interlude_delay') {
+      this.interludeDelayFrames--;
+      if (this.interludeDelayFrames <= 0) this._finishInterludeSpawn();
       this.input.endFrame();
       return;
     }
@@ -2243,7 +2298,8 @@ class Game {
       const interlude = getInterludeLines(this.story, this.level);
       if (interlude && interlude.length) {
         this.state = 'interlude';
-        this.interludeScroll = 0;
+        const tcrawl = this.story.titleCrawl || {};
+        this.interludeScroll = initialScrollForLines(interlude, tcrawl, 'interlude');
         this.interludeLines = interlude;
         this.pendingSpawnLevel = this.level;
       } else {
@@ -2384,7 +2440,7 @@ class Game {
       this.canyon.draw(ctx);
     }
 
-    if (this.state === 'title_crawl' || this.state === 'interlude') {
+    if (this.state === 'title_crawl' || this.state === 'interlude' || this.state === 'interlude_delay') {
       ctx.restore();
       ctx.restore();
       this.bloom.apply(ctx, this.gameCanvas, cw, ch);
