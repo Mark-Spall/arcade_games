@@ -87,7 +87,7 @@ const CONFIG = {
     spacingX: 46, spacingY: 44, offsetY: 55,
     bossEvery: 5,
     typeProgression: [
-      { minLevel: 1,  types: ['scout', 'cloaker'] }, // remove ths cloaker
+      { minLevel: 1,  types: ['scout'] }, 
       { minLevel: 3,  types: ['scout', 'fighter'] },
       { minLevel: 5,  types: ['scout', 'fighter', 'splitter'] },
       { minLevel: 7,  types: ['scout', 'fighter', 'splitter', 'heavy'] },
@@ -103,8 +103,8 @@ const CONFIG = {
   drops: {
     baseChance: 0.085,
     upgradeStartLevel: 8, shieldStartLevel: 10, bombStartLevel: 12,
-    seekerStartLevel: 6, mineStartLevel: 1, rearStartLevel: 1, // change mine back to 8 and rear to 11
-    gravityStartLevel: 1, // change back to 13
+    seekerStartLevel: 6, mineStartLevel: 8, rearStartLevel: 11, 
+    gravityStartLevel: 13,
     upgradeChance: 0.18, shieldChance: 0.30, bombChance: 0.20,
     lifeChance: 0.30, pityUpgradeChance: 0.55,
     seekerChance: 0.22, mineChance: 0.18, rearChance: 0.15,
