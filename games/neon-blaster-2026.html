@@ -543,7 +543,66 @@ class InputManager {
     this.keys = {};
     this.justPressed = {};
     this.touch = { left: false, right: false, up: false, down: false, fire: false, bomb: false, grav: false };
+    /** Mouse position in game world coords (updated when pointer is over the playfield). */
+    this.pointerWorldX = 0;
+    this.pointerWorldY = 0;
+    this.pointerInGame = false;
+    this.pointerLeftDown = false;
+    this.pointerJustRight = false;
+    this.pointerJustMiddle = false;
+    this._getGameTransform = null;
+    this._onWinMouseUp = (e) => this._handleMouseUp(e);
+    this._onWinBlur = () => { this.pointerLeftDown = false; };
     this._bind();
+  }
+
+  /** Call from Game after canvas layout is known; getTransform returns { rect, offX, offY, scale, W, H }. */
+  attachGameCanvas(canvas, getTransform) {
+    this._getGameTransform = getTransform;
+    canvas.addEventListener('mousemove', e => this._handlePointerMove(e));
+    canvas.addEventListener('mouseenter', e => this._handlePointerMove(e));
+    canvas.addEventListener('mouseleave', () => { this.pointerInGame = false; });
+    canvas.addEventListener('mousedown', e => this._handleMouseDown(e));
+    canvas.addEventListener('contextmenu', e => { e.preventDefault(); });
+    window.addEventListener('mouseup', this._onWinMouseUp);
+    window.addEventListener('blur', this._onWinBlur);
+  }
+
+  _handlePointerMove(e) {
+    const t = this._getGameTransform && this._getGameTransform();
+    if (!t || !t.rect) return;
+    const rect = t.rect;
+    const lx = e.clientX - rect.left;
+    const ly = e.clientY - rect.top;
+    const gx = t.offX;
+    const gy = t.offY;
+    const sw = t.W * t.scale;
+    const sh = t.H * t.scale;
+    if (lx >= gx && lx < gx + sw && ly >= gy && ly < gy + sh) {
+      this.pointerInGame = true;
+      this.pointerWorldX = (lx - gx) / t.scale;
+      this.pointerWorldY = (ly - gy) / t.scale;
+    } else {
+      this.pointerInGame = false;
+    }
+  }
+
+  _handleMouseDown(e) {
+    if (e.button === 0) this.pointerLeftDown = true;
+    if (e.button === 1) {
+      e.preventDefault();
+      this.pointerJustMiddle = true;
+    }
+    if (e.button === 2) {
+      e.preventDefault();
+      this.pointerJustRight = true;
+    }
+  }
+
+  _handleMouseUp(e) {
+    if (e.button === 0) this.pointerLeftDown = false;
+    if (e.button === 1) e.preventDefault();
+    if (e.button === 2) e.preventDefault();
   }
 
   _bind() {
@@ -577,15 +636,19 @@ class InputManager {
     if (this.keys['ArrowDown'] || this.keys['KeyS'] || this.touch.down) v += 1;
     return v;
   }
-  firing() { return this.keys['Space'] || this.keys['KeyZ'] || this.keys['ArrowUp'] || this.touch.fire; }
-  bomb()   { return this.justPressed['KeyB'] || this.touch.bomb; }
-  grav()   { return this.justPressed['KeyG'] || this.touch.grav; }
+  firing() {
+    return this.keys['Space'] || this.keys['KeyZ'] || this.keys['ArrowUp'] || this.touch.fire || this.pointerLeftDown;
+  }
+  bomb() { return this.justPressed['KeyB'] || this.touch.bomb || this.pointerJustRight; }
+  grav() { return this.justPressed['KeyG'] || this.touch.grav || this.pointerJustMiddle; }
   anyKey() { return Object.values(this.keys).some(Boolean) || Object.values(this.touch).some(Boolean); }
 
   endFrame() {
     this.justPressed = {};
     this.touch.bomb = false;
     this.touch.grav = false;
+    this.pointerJustRight = false;
+    this.pointerJustMiddle = false;
   }
 }
 
@@ -1340,11 +1403,19 @@ class Player {
   suspendTimers() { this._timersSuspended = true; }
   resumeTimers() { this._timersSuspended = false; }
 
-  update(dt, input, canyon) {
+  update(dt, input, canyon, useMouseSteer) {
     const c = CONFIG.player;
-    this.x += input.moveX() * c.speed * dt;
-    this.y += input.moveY() * c.verticalSpeed * dt;
-    this.y = clamp(this.y, 120, CONFIG.world.height - 40);
+    if (useMouseSteer && input.pointerInGame) {
+      const k = Math.min(1, 22 * dt);
+      const tx = clamp(input.pointerWorldX, 0, CONFIG.world.width);
+      const ty = clamp(input.pointerWorldY, 120, CONFIG.world.height - 40);
+      this.x = lerp(this.x, tx, k);
+      this.y = lerp(this.y, ty, k);
+    } else {
+      this.x += input.moveX() * c.speed * dt;
+      this.y += input.moveY() * c.verticalSpeed * dt;
+      this.y = clamp(this.y, 120, CONFIG.world.height - 40);
+    }
 
     const b = canyon.getBounds(this.y);
     this.x = clamp(this.x, b.left + 16, b.right - 16);
@@ -1860,8 +1931,9 @@ class HUD {
       if (Math.sin(t * 3) > 0) ctx.fillText('ENTER OR CLICK / TAP TO START', W / 2, 370);
 
       ctx.font = '300 11px Rajdhani'; ctx.fillStyle = '#666';
-      ctx.fillText('ARROWS / WASD — MOVE', W / 2, 430);
-      ctx.fillText('SPACE / Z — FIRE     B — BOMB     G — GRAVITY', W / 2, 448);
+      ctx.fillText('MOUSE IN PLAYFIELD — STEER SHIP', W / 2, 418);
+      ctx.fillText('LEFT — FIRE    RIGHT — BOMB    MIDDLE — GRAVITY', W / 2, 434);
+      ctx.fillText('ARROWS / WASD — MOVE    SPACE / Z — FIRE    B / G', W / 2, 450);
 
       if (game.highScore > 0) {
         ctx.font = '700 12px Orbitron'; ctx.fillStyle = CONFIG.colors.yellow;
@@ -2002,6 +2074,15 @@ class Game {
 
     this._resize();
     window.addEventListener('resize', () => this._resize());
+
+    this.input.attachGameCanvas(this.gameCanvas, () => ({
+      rect: this.gameCanvas.getBoundingClientRect(),
+      offX: this.gameOffX,
+      offY: this.gameOffY,
+      scale: this.gameScale,
+      W: CONFIG.world.width,
+      H: CONFIG.world.height,
+    }));
 
     // Start listeners — movement / fire keys must NOT skip story (they were dismissing the crawl in one frame).
     const isGameControlKey = (code) => (
@@ -2218,7 +2299,7 @@ class Game {
       return;
     }
     if (this.state === 'wave_complete') {
-      this.player.update(1, this.input, this.canyon);
+      this.player.update(1, this.input, this.canyon, true);
       this.powerups = this.powerups.filter(p => {
         p.y += p.vy; p.life -= 1;
         if (p.y > CONFIG.world.height + 10 || p.life <= 0) return false;
@@ -2251,7 +2332,7 @@ class Game {
 
     this._syncTouch();
     this.canyon.update(dt, this.level);
-    this.player.update(dt, this.input, this.canyon);
+    this.player.update(dt, this.input, this.canyon, true);
 
     const gwCfg = CONFIG.gravityWell;
     const pl = this.player;
