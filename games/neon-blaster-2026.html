@@ -122,7 +122,7 @@ function canyonActiveForLevel(level) {
 function dropHintLineForLevel(nextLevel) {
   const d = CONFIG.drops;
   if (nextLevel === d.seekerStartLevel) return 'SEEKER PODS CAN DROP FROM WRECKS.';
-  if (nextLevel === d.mineStartLevel) return 'MINES AND WEAPON UPGRADES CAN SPAWN IN LOOT.';
+  if (nextLevel === d.mineStartLevel) return 'MINES IN LOOT — WHILE ACTIVE, HOLD FIRE TO LAY EACH MINE.';
   if (nextLevel === d.shieldStartLevel) return 'SHIELD ORBS CAN DROP — HOLD POSITION LONGER.';
   if (nextLevel === d.rearStartLevel) return 'REAR ARC PICKUPS CAN DROP.';
   if (nextLevel === d.bombStartLevel) return 'BOMB CHARGES IN THE LOOT TABLE.';
@@ -2123,7 +2123,10 @@ class HUD {
       ctx.fillStyle = '#ff2244'; ctx.fillText('SEEKER', W - 12, auxY); auxY += 14;
     }
     if (game.player.mineTimer > 0) {
-      ctx.fillStyle = '#ff6600'; ctx.fillText('MINES', W - 12, auxY); auxY += 14;
+      ctx.fillStyle = '#ff6600'; ctx.fillText('MINES', W - 12, auxY); auxY += 11;
+      ctx.font = '500 7px Rajdhani'; ctx.fillStyle = 'rgba(255,180,120,0.85)';
+      ctx.fillText('HOLD FIRE', W - 12, auxY); auxY += 12;
+      ctx.font = '700 11px Rajdhani';
     }
     if (game.player.rearTimer > 0) {
       ctx.fillStyle = '#cc44ff'; ctx.fillText('REAR', W - 12, auxY); auxY += 14;
@@ -2367,6 +2370,9 @@ class Game {
     this.score = 0; this.highScore = 0; this.lives = 3; this.level = 1;
     this.screenShake = 0; this.slowmo = 0; this.flashWhite = 0;
     this.scoreSubmitted = false;
+    /** Land mine: hold-fire charge (frames); release fire after a drop to arm next long-press. */
+    this._mineFireHold = 0;
+    this._mineNeedFireRelease = false;
     this.interludeScroll = 0;
     this.interludeLines = null;
     this.interludeFadeTick = 0;
@@ -2491,6 +2497,8 @@ class Game {
     this.transitionTimer = 120;
     this.overlayAlpha = 0;
     this.player.suspendTimers();
+    this._mineFireHold = 0;
+    this._mineNeedFireRelease = false;
     this.bullets = []; this.enemyBullets = []; this.mines = []; this.gravityWells = [];
   }
 
@@ -2595,6 +2603,8 @@ class Game {
     this.scoreSubmitted = false;
     this.player.reset();
     this.player.resumeTimers();
+    this._mineFireHold = 0;
+    this._mineNeedFireRelease = false;
     this.enemies = []; this.bullets = []; this.enemyBullets = []; this.powerups = []; this.mines = []; this.gravityWells = [];
     this.particles.reset();
     this.canyon = new Canyon(CONFIG.canyon);
@@ -2730,15 +2740,32 @@ class Game {
       });
     }
 
-    // Land mines: drop behind player
-    if (pl.mineTimer > 0 && pl.mineCD <= 0) {
-      pl.mineCD = aw.mine.dropRate;
-      const arm = aw.mine.armFrames != null ? aw.mine.armFrames : 55;
-      this.mines.push({
-        x: pl.x, y: pl.y + 20, life: aw.mine.life, maxLife: aw.mine.life,
-        dmg: aw.mine.dmg, radius: aw.mine.detonateRadius,
-        armRemaining: arm, armTotal: arm,
-      });
+    // Land mines: long-press fire while mine boost active (release fire after each drop to charge again)
+    const minePress = aw.mine.longPressFrames != null ? aw.mine.longPressFrames : 32;
+    if (pl.mineTimer > 0) {
+      if (this.input.firing()) {
+        if (!this._mineNeedFireRelease) {
+          this._mineFireHold += dt;
+          if (this._mineFireHold >= minePress && pl.mineCD <= 0) {
+            pl.mineCD = aw.mine.dropRate;
+            this._mineFireHold = 0;
+            this._mineNeedFireRelease = true;
+            const arm = aw.mine.armFrames != null ? aw.mine.armFrames : 55;
+            this.mines.push({
+              x: pl.x, y: pl.y + 20, life: aw.mine.life, maxLife: aw.mine.life,
+              dmg: aw.mine.dmg, radius: aw.mine.detonateRadius,
+              armRemaining: arm, armTotal: arm,
+            });
+            this.audio.play(320, 0.06, 'square', 0.22);
+          }
+        }
+      } else {
+        this._mineFireHold = 0;
+        this._mineNeedFireRelease = false;
+      }
+    } else {
+      this._mineFireHold = 0;
+      this._mineNeedFireRelease = false;
     }
 
     // Bullets (with homing behavior + gravity well absorption)

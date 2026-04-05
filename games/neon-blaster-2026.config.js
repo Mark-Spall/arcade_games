@@ -215,7 +215,7 @@ const CONFIG = {
 
   auxWeapons: {
     seeker: { fireRate: 28, speed: 5, turnRate: 0.08, life: 180, dmg: 2, duration: 900, color: '#ff2244' },
-    mine:   { dropRate: 70, radius: 18, detonateRadius: 30, dmg: 3, life: 400, duration: 800, color: '#ff6600', armFrames: 55 },
+    mine:   { longPressFrames: 32, dropRate: 70, radius: 18, detonateRadius: 30, dmg: 3, life: 400, duration: 800, color: '#ff6600', armFrames: 55 },
     rear:   { fireRate: 18, speed: 6, dmg: 1, duration: 700, color: '#cc44ff' },
   },
 
