@@ -1822,7 +1822,7 @@ class HUD {
     ctx.restore();
   }
 
-  drawTitleMenu(highScore) {
+  drawTitleMenu(game) {
     const ctx = this.ctx;
     const W = CONFIG.world.width, H = CONFIG.world.height;
     ctx.clearRect(0, 0, this.w, this.h);
@@ -1830,44 +1830,89 @@ class HUD {
     this._enterGameZone(ctx);
     const t = Date.now() * 0.001;
 
+    // ─── Logo (always visible) ───
     ctx.textAlign = 'center';
     const glow = 18 + Math.sin(t * 2) * 8;
     ctx.shadowBlur = glow;
     ctx.shadowColor = CONFIG.colors.pink;
-    ctx.font = '900 44px Orbitron'; ctx.fillStyle = CONFIG.colors.pink;
-    ctx.fillText('NEON', W / 2, 180);
+    ctx.font = '900 38px Orbitron'; ctx.fillStyle = CONFIG.colors.pink;
+    ctx.fillText('NEON', W / 2, 120);
     ctx.shadowColor = CONFIG.colors.blue; ctx.fillStyle = CONFIG.colors.blue;
-    ctx.fillText('BLASTER', W / 2, 238);
+    ctx.fillText('BLASTER', W / 2, 170);
     ctx.shadowBlur = 0;
 
     ctx.strokeStyle = CONFIG.colors.pink; ctx.lineWidth = 1.5;
     ctx.shadowColor = CONFIG.colors.pink; ctx.shadowBlur = 12;
-    ctx.beginPath(); ctx.moveTo(100, 262); ctx.lineTo(W - 100, 262); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(100, 190); ctx.lineTo(W - 100, 190); ctx.stroke();
     ctx.shadowBlur = 0;
 
-    ctx.font = '300 13px Rajdhani'; ctx.fillStyle = 'rgba(255,255,255,0.45)';
-    ctx.fillText('E D I T I O N   2 0 2 6', W / 2, 288);
+    ctx.font = '300 11px Rajdhani'; ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillText('E D I T I O N   2 0 2 6', W / 2, 210);
 
-    ctx.font = 'bold 17px Orbitron'; ctx.fillStyle = CONFIG.colors.yellow;
-    ctx.shadowColor = CONFIG.colors.yellow; ctx.shadowBlur = 14;
-    if (Math.sin(t * 3.2) > 0) ctx.fillText('▶  INSERT COIN  ◀', W / 2, 340);
-    ctx.shadowBlur = 0;
-
-    ctx.font = '500 13px Rajdhani'; ctx.fillStyle = CONFIG.colors.green;
-    if (Math.sin(t * 3) > 0) ctx.fillText('ENTER OR CLICK / TAP TO START', W / 2, 400);
-
-    ctx.font = '300 11px Rajdhani'; ctx.fillStyle = '#666';
-    ctx.fillText('ARROWS / WASD — MOVE     SPACE / Z — FIRE     B — BOMB     G — GRAVITY WELL', W / 2, 450);
-
-    if (highScore > 0) {
-      ctx.font = '700 12px Orbitron'; ctx.fillStyle = CONFIG.colors.yellow;
-      ctx.shadowColor = CONFIG.colors.yellow; ctx.shadowBlur = 8;
-      ctx.fillText('HI-SCORE: ' + highScore, W / 2, 520);
+    // ─── Page 0: Insert Coin + controls ───
+    if (game.titlePage === 0) {
+      ctx.font = 'bold 17px Orbitron'; ctx.fillStyle = CONFIG.colors.yellow;
+      ctx.shadowColor = CONFIG.colors.yellow; ctx.shadowBlur = 14;
+      if (Math.sin(t * 3.2) > 0) ctx.fillText('▶  INSERT COIN  ◀', W / 2, 310);
       ctx.shadowBlur = 0;
+
+      ctx.font = '500 13px Rajdhani'; ctx.fillStyle = CONFIG.colors.green;
+      if (Math.sin(t * 3) > 0) ctx.fillText('ENTER OR CLICK / TAP TO START', W / 2, 370);
+
+      ctx.font = '300 11px Rajdhani'; ctx.fillStyle = '#666';
+      ctx.fillText('ARROWS / WASD — MOVE', W / 2, 430);
+      ctx.fillText('SPACE / Z — FIRE     B — BOMB     G — GRAVITY', W / 2, 448);
+
+      if (game.highScore > 0) {
+        ctx.font = '700 12px Orbitron'; ctx.fillStyle = CONFIG.colors.yellow;
+        ctx.shadowColor = CONFIG.colors.yellow; ctx.shadowBlur = 8;
+        ctx.fillText('HI-SCORE: ' + game.highScore, W / 2, 510);
+        ctx.shadowBlur = 0;
+      }
     }
 
+    // ─── Page 1: High score table ───
+    if (game.titlePage === 1) {
+      ctx.font = '700 14px Orbitron'; ctx.fillStyle = CONFIG.colors.yellow;
+      ctx.shadowColor = CONFIG.colors.yellow; ctx.shadowBlur = 10;
+      ctx.fillText('— HIGH SCORES —', W / 2, 260);
+      ctx.shadowBlur = 0;
+
+      const entries = game.leaderboard || [];
+      if (entries.length === 0) {
+        ctx.font = '500 13px Rajdhani'; ctx.fillStyle = '#555';
+        ctx.fillText('NO SCORES YET — BE THE FIRST', W / 2, 350);
+      } else {
+        const startY = 295;
+        const rowH = 24;
+        for (let i = 0; i < Math.min(entries.length, 10); i++) {
+          const e = entries[i];
+          const y = startY + i * rowH;
+          const rank = String(i + 1).padStart(2, ' ') + '.';
+          const name = (e.name || 'AAA').slice(0, 12);
+          const score = String(e.score || 0).padStart(8, '0');
+          const isTop3 = i < 3;
+          ctx.font = '600 11px Orbitron';
+          ctx.fillStyle = isTop3 ? CONFIG.colors.yellow : '#aaa';
+          ctx.textAlign = 'left';
+          const baseX = W / 2 - 140;
+          ctx.fillText(rank, baseX, y);
+          ctx.fillText(name, baseX + 34, y);
+          ctx.textAlign = 'right';
+          ctx.fillStyle = isTop3 ? CONFIG.colors.green : '#888';
+          ctx.fillText(score, W / 2 + 140, y);
+          ctx.textAlign = 'center';
+        }
+      }
+
+      ctx.font = '500 12px Rajdhani'; ctx.fillStyle = CONFIG.colors.green;
+      if (Math.sin(t * 3) > 0) ctx.fillText('ENTER OR CLICK / TAP TO START', W / 2, 560);
+    }
+
+    // ─── Footer ───
+    ctx.textAlign = 'center';
     ctx.font = '300 10px Rajdhani'; ctx.fillStyle = '#333';
-    ctx.fillText('NEON BLASTER © 2026', W / 2, H - 30);
+    ctx.fillText('NEON BLASTER © 2026', W / 2, H - 20);
 
     ctx.restore();
   }
@@ -1940,6 +1985,14 @@ class Game {
     /** Overlay fade opacity (0–1) for smooth transitions. */
     this.overlayAlpha = 0;
 
+    /** Attract mode: loaded from scores.js, displayed on title screen. */
+    this.leaderboard = [];
+    /** Title screen page: 0 = logo, 1 = high scores. Cycles every few seconds. */
+    this.titlePage = 0;
+    this.titlePageTimer = 0;
+    /** Attract loop: after title sits idle, replay the crawl. */
+    this.titleIdleTimer = 0;
+
     const tc = this.story.titleCrawl && this.story.titleCrawl.lines && this.story.titleCrawl.lines.length;
     this.state = tc ? 'title_crawl' : 'title';
     const tcrawl = this.story.titleCrawl || {};
@@ -1964,7 +2017,7 @@ class Game {
       this.audio.ensure();
       this.music.start();
       if (this.state === 'title_crawl') {
-        this.state = 'title';
+        this._enterTitle();
         return;
       }
       if (this.state === 'interlude') {
@@ -1990,10 +2043,40 @@ class Game {
   _advanceTitleCrawl() {
     const tc = this.story.titleCrawl || {};
     const lines = tc.lines || [];
-    if (!lines.length) { this.state = 'title'; return; }
+    if (!lines.length) { this._enterTitle(); return; }
     const sp = tc.scrollSpeed ?? 0.42;
     this.titleCrawlScroll += sp;
-    if (this.titleCrawlScroll > this._crawlTotalHeight(lines) + 60) this.state = 'title';
+    if (this.titleCrawlScroll > this._crawlTotalHeight(lines) + 60) this._enterTitle();
+  }
+
+  _enterTitle() {
+    this.state = 'title';
+    this.titlePage = 0;
+    this.titlePageTimer = 0;
+    this.titleIdleTimer = 0;
+  }
+
+  /** Attract mode: cycle title pages; replay crawl after ~20s idle. */
+  _advanceTitleAttract() {
+    const hasScores = this.leaderboard && this.leaderboard.length > 0;
+    const pageCount = hasScores ? 2 : 1;
+    const pageDuration = 300; // ~5s per page at 60Hz
+    const attractTimeout = 1200; // ~20s idle → replay crawl
+
+    this.titlePageTimer++;
+    this.titleIdleTimer++;
+
+    if (pageCount > 1 && this.titlePageTimer >= pageDuration) {
+      this.titlePage = (this.titlePage + 1) % pageCount;
+      this.titlePageTimer = 0;
+    }
+
+    const tc = this.story.titleCrawl && this.story.titleCrawl.lines && this.story.titleCrawl.lines.length;
+    if (tc && this.titleIdleTimer >= attractTimeout) {
+      this.state = 'title_crawl';
+      const tcrawl = this.story.titleCrawl || {};
+      this.titleCrawlScroll = initialScrollForLines(tcrawl.lines || [], tcrawl, 'title');
+    }
   }
 
   // ── Wave transition state machine ──
@@ -2125,6 +2208,11 @@ class Game {
 
     if (this.state === 'title_crawl') {
       this._advanceTitleCrawl();
+      this.input.endFrame();
+      return;
+    }
+    if (this.state === 'title') {
+      this._advanceTitleAttract();
       this.input.endFrame();
       return;
     }
@@ -2503,12 +2591,14 @@ class Game {
       if (!this.scoreSubmitted) {
         this.scoreSubmitted = true;
         const finalScore = this.score;
+        const self = this;
         setTimeout(() => {
           import('/scores.js')
-            .then(({ submitScore }) => {
+            .then(m => {
               const raw = prompt('GAME OVER — Enter initials (max 12):', 'AAA');
               const name = raw == null ? 'AAA' : raw.trim() || 'AAA';
-              submitScore({ gameId: 'neon-blaster-2026', name, score: finalScore, limit: 10 });
+              return m.submitScore({ gameId: 'neon-blaster-2026', name, score: finalScore, limit: 10 })
+                .then(entries => { if (entries) self.leaderboard = entries; });
             })
             .catch(() => {});
         }, 0);
@@ -2692,7 +2782,7 @@ class Game {
       ctx.restore();
       ctx.restore();
       this.bloom.apply(ctx, this.gameCanvas, cw, ch);
-      this.hud.drawTitleMenu(this.highScore);
+      this.hud.drawTitleMenu(this);
       return;
     }
 
@@ -2818,6 +2908,10 @@ class Game {
 //  INITIALIZATION
 // ══════════════════════════════════════════════════════════════════
 const game = new Game(STORY);
+import('/scores.js')
+  .then(m => m.getScores('neon-blaster-2026', { limit: 10 }))
+  .then(entries => { game.leaderboard = entries || []; })
+  .catch(() => {});
 game.run();
 })();
 </script>
