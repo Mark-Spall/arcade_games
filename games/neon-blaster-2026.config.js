@@ -20,7 +20,7 @@ const CONFIG = {
     size: { w: 34, h: 32 },
     startY: 0.82,
     invincibilityFrames: 90,
-    maxLives: 5, maxShields: 3, maxBombs: 3, maxGravityWells: 3,
+    maxLives: 10, maxShields: 5, maxBombs: 5, maxGravityWells: 5,
     weapons: [
       { name: 'Single',  cooldown: 11, bullets: [{ ox: 0, oy: -14, vx: 0, vy: -9, color: '#ff00c8', dmg: 1 }] },
       { name: 'Dual',    cooldown: 8,  bullets: [
@@ -43,6 +43,28 @@ const CONFIG = {
         { ox: 20, oy: -4,  vx: 1.8,  vy: -7.5, color: '#39ff14', dmg: 1, pierce: true },
         { ox:-28, oy:  0,  vx:-2.6,  vy: -6.5, color: '#ffe600', dmg: 2, pierce: true },
         { ox: 28, oy:  0,  vx: 2.6,  vy: -6.5, color: '#ffe600', dmg: 2, pierce: true },
+        { ox:-14, oy: -11, vx:-1.15, vy: -8.9, color: '#ff00c8', dmg: 1 },
+        { ox: 14, oy: -11, vx: 1.15, vy: -8.9, color: '#ff00c8', dmg: 1 },
+        { ox:-32, oy: -2,  vx:-2.85, vy: -6.2, color: '#ffffff', dmg: 1, pierce: true },
+        { ox: 32, oy: -2,  vx: 2.85, vy: -6.2, color: '#ffffff', dmg: 1, pierce: true },
+      ]},
+      { name: 'Nova',    cooldown: 4,  bullets: [
+        { ox: 0, oy: -16, vx: 0,    vy: -10, color: '#ffffff', dmg: 2, pierce: true },
+        { ox: 0, oy: -14, vx: 0,    vy: -9.8, color: '#ff00c8', dmg: 1 },
+        { ox:-8, oy: -15, vx:-0.35, vy: -9.6, color: '#ff00c8', dmg: 1 },
+        { ox: 8, oy: -15, vx: 0.35, vy: -9.6, color: '#ff00c8', dmg: 1 },
+        { ox:-10, oy: -8,  vx:-0.85, vy: -8.8, color: '#00d4ff', dmg: 1 },
+        { ox: 10, oy: -8,  vx: 0.85, vy: -8.8, color: '#00d4ff', dmg: 1 },
+        { ox:-18, oy: -6,  vx:-1.45, vy: -8.2, color: '#00d4ff', dmg: 1, pierce: true },
+        { ox: 18, oy: -6,  vx: 1.45, vy: -8.2, color: '#00d4ff', dmg: 1, pierce: true },
+        { ox:-22, oy: -3,  vx:-1.95, vy: -7.6, color: '#39ff14', dmg: 1, pierce: true },
+        { ox: 22, oy: -3,  vx: 1.95, vy: -7.6, color: '#39ff14', dmg: 1, pierce: true },
+        { ox:-30, oy:  0,  vx:-2.75, vy: -6.8, color: '#ffe600', dmg: 2, pierce: true },
+        { ox: 30, oy:  0,  vx: 2.75, vy: -6.8, color: '#ffe600', dmg: 2, pierce: true },
+        { ox:-36, oy:  1,  vx:-3.1,  vy: -6.2, color: '#cc44ff', dmg: 2, pierce: true },
+        { ox: 36, oy:  1,  vx: 3.1,  vy: -6.2, color: '#cc44ff', dmg: 2, pierce: true },
+        { ox:-12, oy: -12, vx:-1.0,  vy: -9.2, color: '#ff66ff', dmg: 1 },
+        { ox: 12, oy: -12, vx: 1.0,  vy: -9.2, color: '#ff66ff', dmg: 1 },
       ]},
     ],
   },
@@ -109,6 +131,12 @@ const CONFIG = {
     lifeChance: 0.30, pityUpgradeChance: 0.55,
     seekerChance: 0.22, mineChance: 0.18, rearChance: 0.15,
     gravityChance: 0.12,
+    /** Extra frames added per P pickup while boost already active (caps below). */
+    powerStackFrames: 220,
+    powerTimerCap: 1500,
+    /** Extra seeker duration per H while already active; cap keeps dupes worthwhile. */
+    seekerStackFrames: 260,
+    seekerTimerCap: 1680,
   },
 
   gravityWell: {

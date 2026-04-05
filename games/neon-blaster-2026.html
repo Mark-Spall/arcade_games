@@ -505,7 +505,8 @@ class MusicManager {
   update(game) {
     if (!this.ok || !this.started) return;
     if (game.state === 'title' || game.state === 'title_crawl' || game.state === 'gameover' ||
-        game.state === 'wave_complete' || game.state === 'interlude' || game.state === 'wave_starting') {
+        game.state === 'wave_complete' || game.state === 'interlude' || game.state === 'interlude_fade' ||
+        game.state === 'wave_starting') {
       this.setIntensity(0);
       return;
     }
@@ -1408,7 +1409,7 @@ class Player {
     if (useMouseSteer && input.pointerInGame) {
       const tx = clamp(input.pointerWorldX, 0, CONFIG.world.width);
       const ty = clamp(input.pointerWorldY, 120, CONFIG.world.height - 40);
-      const stiffness = 0.18;
+      const stiffness = 0.22;
       const damping = 0.72;
       const ax = (tx - this.x) * stiffness;
       const ay = (ty - this.y) * stiffness;
@@ -1707,7 +1708,7 @@ class WaveManager {
 
     return {
       x: enemy.x, y: enemy.y, vy: 1.5, type,
-      powerValue: clamp(Math.max(player.power + 1, 1), 1, 3),
+      powerValue: clamp(Math.max(player.power + 1, 1), 1, CONFIG.player.weapons.length - 1),
       life: 350,
     };
   }
@@ -1827,14 +1828,15 @@ class HUD {
     if (p.power > 0) {
       ctx.textAlign = 'center';
       const wep = p.weapon;
-      const col = p.power >= 3 ? CONFIG.colors.yellow : p.power >= 2 ? CONFIG.colors.green : CONFIG.colors.blue;
+      const col = p.power >= 4 ? '#ff66ff' : p.power >= 3 ? CONFIG.colors.yellow : p.power >= 2 ? CONFIG.colors.green : CONFIG.colors.blue;
       ctx.font = '700 9px Orbitron'; ctx.fillStyle = col;
       ctx.shadowColor = col; ctx.shadowBlur = 4;
       const label = p.tempPower > p.permPower ? `BOOST ${wep.name}` : wep.name;
       ctx.fillText(label.toUpperCase(), W / 2, H - 18);
       ctx.shadowBlur = 0;
       if (p.powerTimer > 0) {
-        const pct = p.powerTimer / 600;
+        const cap = CONFIG.drops.powerTimerCap ?? 1500;
+        const pct = Math.min(1, p.powerTimer / cap);
         ctx.fillStyle = 'rgba(255,255,255,0.08)';
         ctx.fillRect(W / 2 - 80, H - 10, 160, 3);
         ctx.fillStyle = col;
@@ -1883,7 +1885,7 @@ class HUD {
     ctx.restore();
   }
 
-  drawInterlude(game) {
+  drawInterlude(game, textAlpha = 1) {
     const ctx = this.ctx;
     const W = CONFIG.world.width, H = CONFIG.world.height;
     const tc = game.story.titleCrawl || {};
@@ -1891,6 +1893,7 @@ class HUD {
     ctx.clearRect(0, 0, this.w, this.h);
     ctx.save();
     this._enterGameZone(ctx);
+    ctx.globalAlpha = clamp(textAlpha, 0, 1);
     this._drawScrollingLines(ctx, lines, game.interludeScroll, tc);
     ctx.font = '500 12px Rajdhani';
     ctx.textAlign = 'center';
@@ -2033,6 +2036,9 @@ class HUD {
 // ══════════════════════════════════════════════════════════════════
 //  MAIN GAME CLASS
 // ══════════════════════════════════════════════════════════════════
+/** Interlude copy fades out this many frames before the WAVE banner (60Hz). */
+const INTERLUDE_FADE_FRAMES = 42;
+
 class Game {
   constructor(storyData) {
     this.story = storyData || { titleCrawl: { lines: [] }, betweenLevels: [] };
@@ -2057,6 +2063,7 @@ class Game {
     this.scoreSubmitted = false;
     this.interludeScroll = 0;
     this.interludeLines = null;
+    this.interludeFadeTick = 0;
     this.pendingSpawnLevel = 1;
     /** Transition sub-state timer (frames remaining). */
     this.transitionTimer = 0;
@@ -2105,6 +2112,10 @@ class Game {
       this.music.start();
       if (this.state === 'title_crawl') {
         this._enterTitle();
+        return;
+      }
+      if (this.state === 'interlude_fade') {
+        this._finishInterludeFade();
         return;
       }
       if (this.state === 'interlude') {
@@ -2167,7 +2178,7 @@ class Game {
   }
 
   // ── Wave transition state machine ──
-  // playing → wave_complete (120f/2s) → interlude (story scroll) → wave_starting (90f/1.5s) → playing
+  // playing → wave_complete (120f/2s) → interlude → interlude_fade → wave_starting (90f) → playing
 
   _beginWaveComplete() {
     this.state = 'wave_complete';
@@ -2205,9 +2216,21 @@ class Game {
 
   _endInterlude() {
     if (this.state !== 'interlude') return;
+    this.state = 'interlude_fade';
+    this.interludeFadeTick = 0;
+  }
+
+  _finishInterludeFade() {
+    if (this.state !== 'interlude_fade') return;
     this.interludeLines = null;
     this.interludeScroll = 0;
+    this.interludeFadeTick = 0;
     this._beginWaveStarting();
+  }
+
+  _advanceInterludeFade() {
+    this.interludeFadeTick++;
+    if (this.interludeFadeTick >= INTERLUDE_FADE_FRAMES) this._finishInterludeFade();
   }
 
   _beginWaveStarting() {
@@ -2272,7 +2295,7 @@ class Game {
     this.canyon.setLevelState(this.level);
     this.screenShake = 0; this.slowmo = 0; this.flashWhite = 0;
     this.overlayAlpha = 0; this.transitionTimer = 0;
-    this.interludeLines = null; this.interludeScroll = 0;
+    this.interludeLines = null; this.interludeScroll = 0; this.interludeFadeTick = 0;
     this.enemies = this.waveManager.spawn(this.level);
     this._syncTouch();
   }
@@ -2324,6 +2347,11 @@ class Game {
     }
     if (this.state === 'interlude') {
       this._advanceInterlude();
+      this.input.endFrame();
+      return;
+    }
+    if (this.state === 'interlude_fade') {
+      this._advanceInterludeFade();
       this.input.endFrame();
       return;
     }
@@ -2634,8 +2662,12 @@ class Game {
     const pl = this.player;
     if (p.type === 'power') {
       const nl = p.powerValue || 1;
+      const d = CONFIG.drops;
+      const add = d.powerStackFrames ?? 220;
+      const cap = d.powerTimerCap ?? 1500;
       if (nl >= pl.tempPower) pl.tempPower = nl;
-      pl.powerTimer = Math.max(pl.powerTimer, 600);
+      if (pl.powerTimer <= 0) pl.powerTimer = 600;
+      else pl.powerTimer = Math.min(Math.max(pl.powerTimer, 600) + add, cap);
       this.particles.emit(p.x, p.y, CONFIG.colors.blue, 12);
     } else if (p.type === 'upgrade') {
       pl.permPower = clamp(pl.permPower + 1, 0, CONFIG.player.weapons.length - 1);
@@ -2650,7 +2682,13 @@ class Game {
       pl.gravCharges = Math.min(pl.gravCharges + 1, CONFIG.player.maxGravityWells);
       this.particles.emit(p.x, p.y, '#44aaff', 14, 3, 3);
     } else if (p.type === 'seeker') {
-      pl.seekerTimer = Math.max(pl.seekerTimer, CONFIG.auxWeapons.seeker.duration);
+      const s = CONFIG.auxWeapons.seeker;
+      const d = CONFIG.drops;
+      const add = d.seekerStackFrames ?? 260;
+      const cap = d.seekerTimerCap ?? 1680;
+      if (pl.seekerTimer <= 0) pl.seekerTimer = s.duration;
+      else pl.seekerTimer = Math.min(pl.seekerTimer + add, cap);
+      pl.seekerCD = 0;
       this.particles.emit(p.x, p.y, '#ff2244', 14, 4);
     } else if (p.type === 'mine') {
       pl.mineTimer = Math.max(pl.mineTimer, CONFIG.auxWeapons.mine.duration);
@@ -2868,12 +2906,17 @@ class Game {
     ctx.translate(offX + shakeX * scale, offY + shakeY * scale);
     ctx.scale(scale, scale);
 
-    if (this.state === 'title_crawl' || this.state === 'interlude') {
+    if (this.state === 'title_crawl' || this.state === 'interlude' || this.state === 'interlude_fade') {
       ctx.restore();
       ctx.restore();
       this.bloom.apply(ctx, this.gameCanvas, cw, ch);
       if (this.state === 'title_crawl') this.hud.drawTitleCrawl(this);
-      else this.hud.drawInterlude(this);
+      else {
+        const fadeA = this.state === 'interlude_fade'
+          ? 1 - Math.min(1, this.interludeFadeTick / INTERLUDE_FADE_FRAMES)
+          : 1;
+        this.hud.drawInterlude(this, fadeA);
+      }
       return;
     }
 
