@@ -505,7 +505,7 @@ class MusicManager {
   update(game) {
     if (!this.ok || !this.started) return;
     if (game.state === 'title' || game.state === 'title_crawl' || game.state === 'gameover' ||
-        game.state === 'interlude' || game.state === 'interlude_delay') {
+        game.state === 'wave_complete' || game.state === 'interlude' || game.state === 'wave_starting') {
       this.setIntensity(0);
       return;
     }
@@ -1336,6 +1336,10 @@ class Player {
 
   get weapon() { return CONFIG.player.weapons[clamp(this.power, 0, CONFIG.player.weapons.length - 1)]; }
 
+  /** Freeze all cooldown / duration timers (called during wave transitions so pickups aren't wasted). */
+  suspendTimers() { this._timersSuspended = true; }
+  resumeTimers() { this._timersSuspended = false; }
+
   update(dt, input, canyon) {
     const c = CONFIG.player;
     this.x += input.moveX() * c.speed * dt;
@@ -1345,6 +1349,7 @@ class Player {
     const b = canyon.getBounds(this.y);
     this.x = clamp(this.x, b.left + 16, b.right - 16);
 
+    if (this._timersSuspended) return;
     if (this.invincible > 0) this.invincible -= dt;
     if (this.powerTimer > 0) { this.powerTimer -= dt; } else { this.tempPower = 0; }
     this.shootCD -= dt;
@@ -1813,10 +1818,7 @@ class HUD {
     ctx.font = '500 12px Rajdhani';
     ctx.textAlign = 'center';
     ctx.fillStyle = CONFIG.colors.blue;
-    const hint = game.state === 'interlude_delay'
-      ? 'ENTER OR TAP TO START NOW — OR WAIT A MOMENT'
-      : 'ENTER OR CLICK / TAP TO CONTINUE';
-    if (Math.sin(Date.now() * 0.004) > 0) ctx.fillText(hint, W / 2, H - 28);
+    if (Math.sin(Date.now() * 0.004) > 0) ctx.fillText('ENTER OR CLICK / TAP TO CONTINUE', W / 2, H - 28);
     ctx.restore();
   }
 
@@ -1933,8 +1935,10 @@ class Game {
     this.interludeScroll = 0;
     this.interludeLines = null;
     this.pendingSpawnLevel = 1;
-    /** Frames to wait after interlude story ends before spawning (60 ≈ 1s @ 60Hz). */
-    this.interludeDelayFrames = 0;
+    /** Transition sub-state timer (frames remaining). */
+    this.transitionTimer = 0;
+    /** Overlay fade opacity (0–1) for smooth transitions. */
+    this.overlayAlpha = 0;
 
     const tc = this.story.titleCrawl && this.story.titleCrawl.lines && this.story.titleCrawl.lines.length;
     this.state = tc ? 'title_crawl' : 'title';
@@ -1964,13 +1968,10 @@ class Game {
         return;
       }
       if (this.state === 'interlude') {
-        this._beginInterludePostDelay();
+        this._endInterlude();
         return;
       }
-      if (this.state === 'interlude_delay') {
-        this._finishInterludeSpawn();
-        return;
-      }
+      if (this.state === 'wave_complete' || this.state === 'wave_starting') return;
       if (this.state === 'title' || this.state === 'gameover') this.start();
     };
     window.addEventListener('keydown', startHandler);
@@ -1995,31 +1996,66 @@ class Game {
     if (this.titleCrawlScroll > this._crawlTotalHeight(lines) + 60) this.state = 'title';
   }
 
+  // ── Wave transition state machine ──
+  // playing → wave_complete (120f/2s) → interlude (story scroll) → wave_starting (90f/1.5s) → playing
+
+  _beginWaveComplete() {
+    this.state = 'wave_complete';
+    this.transitionTimer = 120;
+    this.overlayAlpha = 0;
+    this.player.suspendTimers();
+    this.bullets = []; this.enemyBullets = []; this.powerups = []; this.mines = []; this.gravityWells = [];
+  }
+
+  _advanceWaveComplete() {
+    this.transitionTimer--;
+    this.overlayAlpha = clamp(this.transitionTimer < 60 ? (60 - this.transitionTimer) / 30 : 0, 0, 0.7);
+    if (this.transitionTimer <= 0) {
+      const interlude = getInterludeLines(this.story, this.level);
+      if (interlude && interlude.length) {
+        this.state = 'interlude';
+        const tcrawl = this.story.titleCrawl || {};
+        this.interludeScroll = initialScrollForLines(interlude, tcrawl, 'interlude');
+        this.interludeLines = interlude;
+        this.overlayAlpha = 0.7;
+      } else {
+        this._beginWaveStarting();
+      }
+    }
+  }
+
   _advanceInterlude() {
     const tc = this.story.titleCrawl || {};
     const sp = tc.scrollSpeed ?? 0.42;
     this.interludeScroll += sp;
     const lines = this.interludeLines || [];
-    if (this.interludeScroll > this._crawlTotalHeight(lines) + 60) this._beginInterludePostDelay();
+    if (this.interludeScroll > this._crawlTotalHeight(lines) + 60) this._endInterlude();
   }
 
-  /** Story finished (scroll ended or player skipped) — brief pause, then spawn next wave. */
-  _beginInterludePostDelay() {
+  _endInterlude() {
     if (this.state !== 'interlude') return;
-    const lines = this.interludeLines || [];
-    const maxScroll = this._crawlTotalHeight(lines) + 60;
-    this.interludeScroll = Math.min(this.interludeScroll, maxScroll);
-    this.state = 'interlude_delay';
-    this.interludeDelayFrames = 60;
-  }
-
-  _finishInterludeSpawn() {
-    if (this.state !== 'interlude_delay') return;
-    this.state = 'playing';
-    this.enemies = this.waveManager.spawn(this.pendingSpawnLevel);
     this.interludeLines = null;
     this.interludeScroll = 0;
-    this.interludeDelayFrames = 0;
+    this._beginWaveStarting();
+  }
+
+  _beginWaveStarting() {
+    this.state = 'wave_starting';
+    this.transitionTimer = 90;
+    this.overlayAlpha = 0.7;
+    const isBossLevel = CONFIG.waves.bossEvery && this.level > 1 && this.level % CONFIG.waves.bossEvery === 0;
+    if (!isBossLevel) this.canyon.setLevelState(this.level);
+  }
+
+  _advanceWaveStarting() {
+    this.transitionTimer--;
+    this.overlayAlpha = clamp(this.transitionTimer / 30, 0, 0.7);
+    if (this.transitionTimer <= 0) {
+      this.state = 'playing';
+      this.enemies = this.waveManager.spawn(this.pendingSpawnLevel);
+      this.player.resumeTimers();
+      this.overlayAlpha = 0;
+    }
   }
 
   _resize() {
@@ -2058,11 +2094,14 @@ class Game {
     this.score = 0; this.lives = 3; this.level = 1;
     this.scoreSubmitted = false;
     this.player.reset();
+    this.player.resumeTimers();
     this.enemies = []; this.bullets = []; this.enemyBullets = []; this.powerups = []; this.mines = []; this.gravityWells = [];
     this.particles.reset();
     this.canyon = new Canyon(CONFIG.canyon);
     this.canyon.setLevelState(this.level);
     this.screenShake = 0; this.slowmo = 0; this.flashWhite = 0;
+    this.overlayAlpha = 0; this.transitionTimer = 0;
+    this.interludeLines = null; this.interludeScroll = 0;
     this.enemies = this.waveManager.spawn(this.level);
     this._syncTouch();
   }
@@ -2089,14 +2128,21 @@ class Game {
       this.input.endFrame();
       return;
     }
+    if (this.state === 'wave_complete') {
+      this._advanceWaveComplete();
+      this.canyon.update(1, this.level);
+      this.particles.update(1);
+      this.input.endFrame();
+      return;
+    }
     if (this.state === 'interlude') {
       this._advanceInterlude();
       this.input.endFrame();
       return;
     }
-    if (this.state === 'interlude_delay') {
-      this.interludeDelayFrames--;
-      if (this.interludeDelayFrames <= 0) this._finishInterludeSpawn();
+    if (this.state === 'wave_starting') {
+      this._advanceWaveStarting();
+      this.canyon.update(1, this.level);
       this.input.endFrame();
       return;
     }
@@ -2383,27 +2429,15 @@ class Game {
     // Particles
     this.particles.update(dt);
 
-    // Next wave
+    // Next wave — classic transition: wave_complete → interlude → wave_starting → playing
     if (this.enemies.length === 0 && this.state === 'playing') {
       this.level++;
-      // Boss levels: force canyon open for the fight
+      this.pendingSpawnLevel = this.level;
       const isBossLevel = CONFIG.waves.bossEvery && this.level > 1 && this.level % CONFIG.waves.bossEvery === 0;
       if (isBossLevel && (this.canyon.mode === 'active' || this.canyon.mode === 'entering')) {
         this.canyon.mode = 'exiting'; this.canyon.transTimer = 0;
-      } else if (!isBossLevel) {
-        this.canyon.setLevelState(this.level);
       }
-      const interlude = getInterludeLines(this.story, this.level);
-      if (interlude && interlude.length) {
-        this.state = 'interlude';
-        const tcrawl = this.story.titleCrawl || {};
-        this.interludeScroll = initialScrollForLines(interlude, tcrawl, 'interlude');
-        this.interludeLines = interlude;
-        this.pendingSpawnLevel = this.level;
-      } else {
-        this.enemies = this.waveManager.spawn(this.level);
-      }
-      this.slowmo = 20;
+      this._beginWaveComplete();
     }
 
     this.input.endFrame();
@@ -2645,11 +2679,7 @@ class Game {
     ctx.translate(offX + shakeX * scale, offY + shakeY * scale);
     ctx.scale(scale, scale);
 
-    if (this.state === 'playing' || this.state === 'gameover') {
-      this.canyon.draw(ctx);
-    }
-
-    if (this.state === 'title_crawl' || this.state === 'interlude' || this.state === 'interlude_delay') {
+    if (this.state === 'title_crawl' || this.state === 'interlude') {
       ctx.restore();
       ctx.restore();
       this.bloom.apply(ctx, this.gameCanvas, cw, ch);
@@ -2666,13 +2696,18 @@ class Game {
       return;
     }
 
+    // States that show the game world: playing, gameover, wave_complete, wave_starting
+    if (this.canyon.active || this.canyon.mode === 'entering' || this.canyon.mode === 'exiting') {
+      this.canyon.draw(ctx);
+    }
+
     // Flash
     if (this.flashWhite > 0) {
       ctx.fillStyle = `rgba(255,255,255,${this.flashWhite * 0.05})`;
       ctx.fillRect(0, 0, W, H);
     }
 
-    // Particles (behind entities for trail look)
+    // Particles
     this.particles.draw(ctx);
 
     for (const gw of this.gravityWells) Sprites.gravityWell(ctx, gw);
@@ -2680,7 +2715,7 @@ class Game {
     // Enemies
     for (const e of this.enemies) e.draw(ctx);
 
-    // Player bullets (seekers drawn differently)
+    // Player bullets
     for (const b of this.bullets) {
       if (b.homing) Sprites.seeker(ctx, b.x, b.y, b.vx, b.vy);
       else Sprites.bullet(ctx, b.x, b.y, b.color);
@@ -2698,6 +2733,49 @@ class Game {
     // Powerups
     for (const p of this.powerups) Sprites.powerup(ctx, p.x, p.y, p.type);
 
+    // Transition overlay (fades in during wave_complete, out during wave_starting)
+    if (this.overlayAlpha > 0.001) {
+      ctx.fillStyle = `rgba(6,0,15,${this.overlayAlpha})`;
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    // Wave banners (drawn in game zone space)
+    if (this.state === 'wave_complete') {
+      const completedLevel = this.level - 1;
+      const t = Date.now() * 0.001;
+      const pulse = 0.7 + Math.sin(t * 4) * 0.3;
+      ctx.textAlign = 'center';
+      ctx.shadowColor = CONFIG.colors.yellow; ctx.shadowBlur = 18 * pulse;
+      ctx.font = '900 28px Orbitron'; ctx.fillStyle = CONFIG.colors.yellow;
+      ctx.globalAlpha = clamp((120 - this.transitionTimer) / 20, 0, 1);
+      ctx.fillText('WAVE ' + completedLevel, W / 2, H * 0.38);
+      ctx.font = '700 16px Orbitron'; ctx.fillStyle = CONFIG.colors.green;
+      ctx.shadowColor = CONFIG.colors.green; ctx.shadowBlur = 10;
+      ctx.fillText('CLEARED', W / 2, H * 0.38 + 36);
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1;
+    }
+
+    if (this.state === 'wave_starting') {
+      const t = Date.now() * 0.001;
+      const pulse = 0.7 + Math.sin(t * 5) * 0.3;
+      const fadeIn = clamp((90 - this.transitionTimer) / 15, 0, 1);
+      const isBoss = CONFIG.waves.bossEvery && this.level > 1 && this.level % CONFIG.waves.bossEvery === 0;
+      ctx.textAlign = 'center';
+      ctx.globalAlpha = fadeIn;
+      ctx.shadowColor = isBoss ? CONFIG.colors.red : CONFIG.colors.blue;
+      ctx.shadowBlur = 20 * pulse;
+      ctx.font = '900 32px Orbitron';
+      ctx.fillStyle = isBoss ? CONFIG.colors.red : CONFIG.colors.blue;
+      ctx.fillText('WAVE ' + this.level, W / 2, H * 0.42);
+      if (isBoss) {
+        ctx.font = '700 14px Orbitron'; ctx.fillStyle = CONFIG.colors.red;
+        ctx.fillText('⚠ BOSS ⚠', W / 2, H * 0.42 + 34);
+      }
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1;
+    }
+
     ctx.restore(); // exit game zone
     ctx.restore(); // outer save
 
@@ -2708,7 +2786,7 @@ class Game {
     if (this.state === 'gameover') {
       this.hud.draw(this);
       this.hud.drawGameOver(this.score, this.highScore, this.score >= this.highScore && this.highScore > 0);
-    } else {
+    } else if (this.state === 'playing') {
       this.hud.draw(this);
     }
   }
