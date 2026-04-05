@@ -315,6 +315,16 @@ class MusicManager {
         volume: lc.volume ?? -18,
       };
       synth = new Tone.NoiseSynth(ns);
+    } else if (lc.synthType === 'fm') {
+      synth = new Tone.FMSynth({
+        harmonicity: lc.harmonicity ?? 3,
+        modulationIndex: lc.modulationIndex ?? 10,
+        oscillator: lc.oscillator || { type: 'sine' },
+        envelope: lc.envelope || { attack: 0.5, decay: 0.3, sustain: 0.8, release: 2 },
+        modulation: lc.modulation || { type: 'square' },
+        modulationEnvelope: lc.modulationEnvelope || { attack: 0.5, decay: 0, sustain: 1, release: 0.5 },
+        volume: lc.volume ?? -14,
+      });
     }
 
     let filter = null;
@@ -396,6 +406,37 @@ class MusicManager {
     L.seq = seq;
   }
 
+  _rebuildLayerSequence(name) {
+    const L = this.layers[name];
+    if (!L) return;
+    const merged = this._mergedLayer(name);
+    let notes;
+    if (merged.pattern === 'chords') {
+      notes = this.cfg.progression;
+    } else if (Array.isArray(merged.pattern) && merged.pattern.length > 0 && Array.isArray(merged.pattern[0])) {
+      notes = merged.pattern.flat();
+    } else {
+      notes = merged.pattern;
+    }
+    if (!notes || !Array.isArray(notes)) return;
+    const dur = merged.noteDuration || L.lc.noteDuration || '16n';
+    const sub = merged.subdivision || L.lc.subdivision;
+    const synth = L.synth;
+    const st = L.lc.synthType;
+    L.seq.dispose();
+    const seq = new Tone.Sequence((time, val) => {
+      if (val === null || val === 0) return;
+      try {
+        if (st === 'membrane') synth.triggerAttackRelease('C1', dur, time);
+        else if (st === 'noise') synth.triggerAttackRelease(dur, time);
+        else synth.triggerAttackRelease(val, dur, time);
+      } catch (e) {}
+    }, notes, sub);
+    seq.loop = true;
+    seq.start(0);
+    L.seq = seq;
+  }
+
   transitionToTheme(themeId) {
     if (!this.ok || !this.started) return;
     const tid = themeId || 'default';
@@ -468,6 +509,35 @@ class MusicManager {
           } catch (e) { /* ignore */ }
         }
       }
+
+      if (L.lc.synthType === 'fm') {
+        if (merged.harmonicity != null) {
+          try { L.synth.harmonicity.rampTo(merged.harmonicity, ramp); } catch (e) {}
+        }
+        if (merged.modulationIndex != null) {
+          try { L.synth.modulationIndex.rampTo(merged.modulationIndex, ramp); } catch (e) {}
+        }
+        if (merged.oscillator) {
+          try { L.synth.set({ oscillator: merged.oscillator }); } catch (e) {}
+        }
+        if (merged.modulation) {
+          try { L.synth.set({ modulation: merged.modulation }); } catch (e) {}
+        }
+        if (merged.volume != null) {
+          try { L.synth.volume.rampTo(merged.volume, ramp); } catch (e) {}
+        }
+      }
+
+      // Universal volume ramp for mono/poly/membrane synths
+      if (merged.volume != null && L.lc.synthType !== 'noise' && L.lc.synthType !== 'fm') {
+        try { L.synth.volume.rampTo(merged.volume, ramp); } catch (e) {}
+      }
+    }
+
+    // Rebuild patterns for all layers that might have theme-specific sequences
+    for (const name of Object.keys(this.layers)) {
+      if (name === 'pad' || name === 'arp') continue;
+      this._rebuildLayerSequence(name);
     }
   }
 

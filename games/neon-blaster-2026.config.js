@@ -361,6 +361,33 @@ const CONFIG = {
         minIntensity: 3,
         reverb: true,
       },
+      drone: {
+        synthType: 'fm',
+        harmonicity: 1.5,
+        modulationIndex: 8,
+        oscillator: { type: 'sine' },
+        modulation: { type: 'triangle' },
+        envelope: { attack: 2.0, decay: 1.0, sustain: 0.7, release: 3.0 },
+        modulationEnvelope: { attack: 1.5, decay: 0.5, sustain: 0.6, release: 2.0 },
+        filterFreq: 600,
+        filterRolloff: -24,
+        volume: -32,
+        noteDuration: '2n',
+        pattern: ['A1', null, 'D1', null, 'F1', null, 'E1', null],
+        subdivision: '2n',
+        minIntensity: 0,
+        reverb: true,
+      },
+      sub: {
+        synthType: 'mono',
+        oscillator: { type: 'sine' },
+        envelope: { attack: 0.3, decay: 0.5, sustain: 0.8, release: 0.5 },
+        volume: -18,
+        noteDuration: '2n',
+        pattern: ['A1', null, null, null, 'D1', null, null, null, 'F1', null, null, null, 'E1', null, null, null],
+        subdivision: '4n',
+        minIntensity: 1,
+      },
     },
 
     intensity: {
@@ -380,10 +407,10 @@ const CONFIG = {
     waveThemes: {
       defaultId: 'default',
       rules: [
-        {
-          id: 'dissonant_industrial',
-          match: (level) => CONFIG.waves.bossEvery && level > 1 && level % CONFIG.waves.bossEvery === 0,
-        },
+        { id: 'leviathan_wrath', match: (level) => level > 1 && CONFIG.waves.bossEvery && level % CONFIG.waves.bossEvery === 0 && _bossForLevel(level) === 'leviathan' },
+        { id: 'phantom', match: (level) => level > 1 && CONFIG.waves.bossEvery && level % CONFIG.waves.bossEvery === 0 && _bossForLevel(level) === 'dreadnought' },
+        { id: 'dissonant_industrial', match: (level) => CONFIG.waves.bossEvery && level > 1 && level % CONFIG.waves.bossEvery === 0 },
+        { id: 'deep_abyss', match: (level) => level >= 20 },
         { id: 'heavy_bass', match: (level) => level >= 12 },
         { id: 'high_tempo', match: (level) => level <= 6 },
       ],
@@ -394,7 +421,12 @@ const CONFIG = {
      * bpmDelta is added on top of level-scaled BPM in MusicManager.update (capped by maxBpm).
      */
     themes: {
-      default: {},
+      default: {
+        drone: { volume: -32, harmonicity: 1.5, modulationIndex: 8 },
+        sub: { volume: -18 },
+      },
+
+      // ── Early game: bright, energetic, arcade-forward ──
       high_tempo: {
         bpmDelta: 6,
         reverbWet: 0.22,
@@ -405,7 +437,11 @@ const CONFIG = {
         kick: { envelope: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.1 } },
         snare: { volume: -20 },
         hihat: { volume: -17 },
+        drone: { volume: -60 },
+        sub: { volume: -60 },
       },
+
+      // ── Mid-late game: heavier, darker, sub-bass presence ──
       heavy_bass: {
         bpmDelta: -2,
         reverbWet: 0.16,
@@ -416,7 +452,13 @@ const CONFIG = {
         kick: { pitchDecay: 0.06, octaves: 5 },
         snare: { volume: -22 },
         hihat: { volume: -20, noiseType: 'pink' },
+        drone: { volume: -26, harmonicity: 2, modulationIndex: 6,
+                 pattern: ['A1', null, 'E1', null, 'F1', null, 'D1', null] },
+        sub: { volume: -14,
+               pattern: ['A1', null, 'A1', null, 'D1', null, 'D1', null, 'F1', null, 'F1', null, 'E1', null, 'E1', null] },
       },
+
+      // ── Standard boss waves: dissonant, industrial, menacing ──
       dissonant_industrial: {
         bpmDelta: -8,
         reverbWet: 0.34,
@@ -427,7 +469,13 @@ const CONFIG = {
           ['E2', 'G2', 'B3'],
         ],
         pad: { filterFreq: 650, oscillator: { type: 'fatsawtooth', count: 3, spread: 55 } },
-        bass: { oscillator: { type: 'sawtooth' } },
+        bass: { oscillator: { type: 'sawtooth' },
+                pattern: [
+                  ['A1', null, 'A1', 'Bb1', null, null, 'E1', null],
+                  ['Bb0', null, 'Bb0', null, null, null, 'F1', null],
+                  ['F1', null, 'F1', null, 'C1', null, 'Ab0', null],
+                  ['E1', null, 'E1', null, 'B0', null, 'E1', 'F1'],
+                ] },
         arp: {
           oscillator: { type: 'sawtooth' },
           filterFreq: 1800,
@@ -439,9 +487,156 @@ const CONFIG = {
           ],
         },
         lead: { oscillator: { type: 'sawtooth' }, filterFreq: 2000 },
-        kick: { pitchDecay: 0.04, octaves: 6, envelope: { attack: 0.001, decay: 0.28, sustain: 0, release: 0.14 } },
+        kick: { pitchDecay: 0.04, octaves: 6,
+                envelope: { attack: 0.001, decay: 0.28, sustain: 0, release: 0.14 },
+                pattern: [1,0,0,0, 1,0,0,1, 0,0,1,0, 1,0,0,0] },
         snare: { volume: -18, envelope: { attack: 0.001, decay: 0.18, sustain: 0, release: 0.12 } },
-        hihat: { volume: -22, envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.04 } },
+        hihat: { volume: -22, envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.04 },
+                 pattern: [1,0,1,0, 1,1,1,0, 1,0,1,0, 1,0,1,1] },
+        drone: { volume: -20, harmonicity: 3.5, modulationIndex: 14,
+                 modulation: { type: 'sawtooth' },
+                 pattern: ['A1', null, 'Bb1', null, null, null, 'E1', null] },
+        sub: { volume: -12,
+               pattern: ['A1', null, null, null, 'Bb0', null, null, null, 'F1', null, null, null, 'E1', null, null, null] },
+      },
+
+      // ── Cloaked boss (Dreadnought): Phrygian mode, ghostly, haunting ──
+      phantom: {
+        bpmDelta: -14,
+        reverbWet: 0.55,
+        progression: [
+          ['E2', 'B2', 'E3'],
+          ['F2', 'A2', 'C3'],
+          ['A1', 'E2', 'A2'],
+          ['B1', 'D2', 'F2'],
+        ],
+        pad: { filterFreq: 350, oscillator: { type: 'fatsawtooth', count: 3, spread: 60 }, volume: -24 },
+        bass: { oscillator: { type: 'sine' }, volume: -16,
+                pattern: [
+                  ['E1', null, null, null, null, null, null, null],
+                  ['F1', null, null, null, null, null, null, null],
+                  ['A0', null, null, null, null, null, null, null],
+                  ['B0', null, null, null, null, null, null, null],
+                ] },
+        arp: {
+          oscillator: { type: 'sine' },
+          filterFreq: 4200,
+          volume: -22,
+          pattern: [
+            ['E4', null, 'F4', null, null, null, null, null, 'E4', null, null, null, 'B4', null, null, null],
+            ['F4', null, null, null, 'C5', null, null, null, null, null, 'A4', null, null, null, null, null],
+            ['A3', null, null, null, null, null, 'E4', null, null, null, null, null, 'C4', null, null, null],
+            ['B3', null, 'F4', null, null, null, null, null, 'D4', null, null, null, null, null, 'B3', null],
+          ],
+        },
+        lead: { oscillator: { type: 'triangle' }, filterFreq: 1800, volume: -38 },
+        kick: { pitchDecay: 0.08, octaves: 7,
+                envelope: { attack: 0.001, decay: 0.35, sustain: 0, release: 0.18 },
+                pattern: [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0] },
+        snare: { volume: -40 },
+        hihat: { volume: -26,
+                 envelope: { attack: 0.001, decay: 0.03, sustain: 0, release: 0.02 },
+                 pattern: [0,0,1,0, 0,0,0,0, 0,0,1,0, 0,0,0,0] },
+        drone: { volume: -16, harmonicity: 2.5, modulationIndex: 18,
+                 oscillator: { type: 'sine' },
+                 modulation: { type: 'sine' },
+                 envelope: { attack: 3.0, decay: 1.5, sustain: 0.8, release: 4.0 },
+                 modulationEnvelope: { attack: 2.0, decay: 0.8, sustain: 0.7, release: 3.0 },
+                 filterFreq: 400,
+                 pattern: ['E1', null, null, null, 'F1', null, null, null] },
+        sub: { volume: -14,
+               pattern: ['E1', null, null, null, 'F1', null, null, null, 'A0', null, null, null, 'B0', null, null, null] },
+      },
+
+      // ── Leviathan boss: apocalyptic, cinematic, overwhelming ──
+      leviathan_wrath: {
+        bpmDelta: 6,
+        reverbWet: 0.35,
+        progression: [
+          ['C2', 'Eb2', 'G2'],
+          ['F1', 'Ab1', 'C2'],
+          ['Ab1', 'C2', 'Eb2'],
+          ['G1', 'B1', 'D2'],
+        ],
+        pad: { filterFreq: 1800, oscillator: { type: 'fatsawtooth', count: 4, spread: 40 }, volume: -18 },
+        bass: { oscillator: { type: 'sawtooth' }, volume: -11,
+                pattern: [
+                  ['C1', null, 'C1', null, 'C1', null, 'G1', null],
+                  ['F0', null, 'F0', null, 'F0', null, 'C1', null],
+                  ['Ab0', null, 'Ab0', null, 'Ab0', null, 'Eb1', null],
+                  ['G0', null, 'G0', null, 'B0', null, 'G0', null],
+                ] },
+        arp: {
+          oscillator: { type: 'sawtooth' },
+          filterFreq: 5000,
+          volume: -16,
+          pattern: [
+            ['G5','Eb5','C5','G4', 'Eb4','C4','G5','F5', 'Eb5','D5','C5','Bb4', 'Ab4','G4','F4','Eb4'],
+            ['Ab4','F4','C4','Ab3', 'F3','C3','Ab4','G4', 'F4','Eb4','D4','C4', 'Bb3','Ab3','G3','F3'],
+            ['Eb5','C5','Ab4','Eb4', 'C4','Ab3','Eb5','D5', 'C5','Bb4','Ab4','G4', 'F4','Eb4','D4','C4'],
+            ['D5','B4','G4','D4', 'B3','G3','D5','C5', 'B4','A4','G4','F4', 'Eb4','D4','C4','B3'],
+          ],
+        },
+        lead: { oscillator: { type: 'sawtooth' }, filterFreq: 4000, volume: -14,
+                pattern: ['C5',null,'Eb5','G5', 'F5','Eb5','D5','C5', 'Bb4',null,'G4',null, 'Ab4',null,'G4',null] },
+        kick: { pitchDecay: 0.03, octaves: 8,
+                envelope: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.08 },
+                pattern: [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0] },
+        snare: { volume: -16,
+                 envelope: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.14 },
+                 pattern: [0,0,0,0, 1,0,0,1, 0,0,0,0, 1,0,1,0] },
+        hihat: { volume: -16,
+                 pattern: [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1] },
+        drone: { volume: -14, harmonicity: 5, modulationIndex: 25,
+                 oscillator: { type: 'sawtooth' },
+                 modulation: { type: 'square' },
+                 envelope: { attack: 0.8, decay: 0.5, sustain: 0.9, release: 1.5 },
+                 modulationEnvelope: { attack: 0.3, decay: 0.2, sustain: 0.8, release: 1.0 },
+                 filterFreq: 800,
+                 pattern: ['C1', null, 'G1', null, null, null, 'C1', null] },
+        sub: { volume: -10,
+               pattern: ['C1', null, null, null, 'F0', null, null, null, 'Ab0', null, null, null, 'G0', null, null, null] },
+      },
+
+      // ── Late game 20+: cold vacuum, relentless mechanical precision ──
+      deep_abyss: {
+        bpmDelta: 2,
+        reverbWet: 0.28,
+        progression: [
+          ['Bb1', 'Db2', 'F2'],
+          ['Gb1', 'Bb1', 'Db2'],
+          ['Eb2', 'Gb2', 'Bb2'],
+          ['F2', 'A2', 'C3'],
+        ],
+        pad: { filterFreq: 800, oscillator: { type: 'fatsawtooth', count: 3, spread: 30 }, volume: -22 },
+        bass: { oscillator: { type: 'square' },
+                pattern: [
+                  ['Bb0', null, 'Bb0', null, null, null, 'F1', null],
+                  ['Gb0', null, 'Gb0', null, null, null, 'Db1', null],
+                  ['Eb1', null, 'Eb1', null, null, null, 'Bb1', null],
+                  ['F1', null, 'F1', null, 'C1', null, 'F1', null],
+                ] },
+        arp: {
+          oscillator: { type: 'triangle' },
+          filterFreq: 3200,
+          pattern: [
+            ['Bb3','Db4','F4','Bb4', 'F4','Db4','Bb3','F3', 'Bb3','Db4','F4','Ab4', 'F4','Db4','Bb3','Ab3'],
+            ['Gb3','Bb3','Db4','Gb4', 'Db4','Bb3','Gb3','Db3', 'Gb3','Bb3','Db4','F4', 'Db4','Bb3','Gb3','F3'],
+            ['Eb3','Gb3','Bb3','Eb4', 'Bb3','Gb3','Eb3','Bb2', 'Eb3','Gb3','Bb3','Db4', 'Bb3','Gb3','Eb3','Db3'],
+            ['F3','A3','C4','F4', 'C4','A3','F3','C3', 'F3','A3','C4','Eb4', 'C4','A3','F3','Eb3'],
+          ],
+        },
+        lead: { oscillator: { type: 'triangle' }, filterFreq: 2600, volume: -20,
+                pattern: ['Bb4',null,'Db5','F4', 'Ab4',null,'Gb4',null, 'Eb4',null,'F4',null, 'Db4',null,'Bb3',null] },
+        kick: { pattern: [1,0,0,0, 1,0,0,1, 0,0,1,0, 1,0,0,0] },
+        snare: { volume: -20, pattern: [0,0,0,0, 1,0,0,0, 0,0,1,0, 1,0,0,0] },
+        hihat: { volume: -18, pattern: [1,0,1,1, 1,0,1,0, 1,0,1,1, 1,0,1,1] },
+        drone: { volume: -22, harmonicity: 2, modulationIndex: 10,
+                 modulation: { type: 'triangle' },
+                 filterFreq: 500,
+                 pattern: ['Bb0', null, null, null, null, null, 'F1', null] },
+        sub: { volume: -14,
+               pattern: ['Bb0', null, null, null, 'Gb0', null, null, null, 'Eb1', null, null, null, 'F1', null, null, null] },
       },
     },
   },
@@ -449,6 +644,19 @@ const CONFIG = {
     url: 'neon-blaster-2026-story.json',
   },
 };
+
+function _bossForLevel(level) {
+  const bp = CONFIG.waves.bossProgression;
+  if (!bp || !bp.length) return 'sentinel';
+  let boss = bp[0].boss;
+  for (const e of bp) { if (level >= e.minLevel) boss = e.boss; }
+  if (level > bp[bp.length - 1].minLevel) {
+    const top = ['dreadnought', 'leviathan', 'warden'];
+    const c = Math.floor((level - bp[bp.length - 1].minLevel) / 5);
+    boss = top[c % top.length];
+  }
+  return boss;
+}
 
 function resolveWaveMusicTheme(level) {
   const wt = CONFIG.music.waveThemes;
