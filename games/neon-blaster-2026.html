@@ -247,11 +247,15 @@ function deepMergeMusicTheme(base, over) {
   const o = { ...base };
   for (const k of Object.keys(over)) {
     const bv = over[k], av = base[k];
-    if (bv && typeof bv === 'object' && !Array.isArray(bv) && k !== 'envelope' && k !== 'oscillator' && k !== 'noise') {
+    if (bv && typeof bv === 'object' && !Array.isArray(bv) && k !== 'envelope' && k !== 'oscillator' && k !== 'noise' && k !== 'modulation' && k !== 'modulationEnvelope') {
       o[k] = deepMergeMusicTheme(av || {}, bv);
     } else if (k === 'oscillator' && bv && typeof bv === 'object') {
       o[k] = { ...(av || {}), ...bv };
     } else if (k === 'envelope' && bv && typeof bv === 'object') {
+      o[k] = { ...(av || {}), ...bv };
+    } else if (k === 'modulation' && bv && typeof bv === 'object') {
+      o[k] = { ...(av || {}), ...bv };
+    } else if (k === 'modulationEnvelope' && bv && typeof bv === 'object') {
       o[k] = { ...(av || {}), ...bv };
     } else {
       o[k] = bv;
@@ -289,42 +293,62 @@ class MusicManager {
     const gain = new Tone.Gain(0);
     gain.connect(lc.reverb ? this.reverb : this.master);
 
+    const st = String(lc.synthType || '').trim().toLowerCase();
     let synth;
-    if (lc.synthType === 'poly') {
-      const polyOpts = {
-        oscillator: lc.oscillator, envelope: lc.envelope, volume: lc.volume ?? -12,
-      };
-      if (lc.maxPolyphony != null) polyOpts.maxPolyphony = lc.maxPolyphony;
-      synth = new Tone.PolySynth(Tone.Synth, polyOpts);
-    } else if (lc.synthType === 'mono') {
+    let voiceKind = st;
+    try {
+      if (st === 'poly') {
+        const polyOpts = {
+          oscillator: lc.oscillator, envelope: lc.envelope, volume: lc.volume ?? -12,
+        };
+        if (lc.maxPolyphony != null) polyOpts.maxPolyphony = lc.maxPolyphony;
+        synth = new Tone.PolySynth(Tone.Synth, polyOpts);
+      } else if (st === 'mono') {
+        synth = new Tone.Synth({
+          oscillator: lc.oscillator, envelope: lc.envelope, volume: lc.volume ?? -12,
+        });
+      } else if (st === 'membrane') {
+        const mem = {
+          pitchDecay: lc.pitchDecay ?? 0.05,
+          octaves: lc.octaves ?? 5,
+          volume: lc.volume ?? -11,
+        };
+        if (lc.envelope) mem.envelope = lc.envelope;
+        synth = new Tone.MembraneSynth(mem);
+      } else if (st === 'noise') {
+        const ns = {
+          noise: { type: lc.noiseType || 'white' },
+          envelope: lc.envelope || { attack: 0.001, decay: 0.06, sustain: 0 },
+          volume: lc.volume ?? -18,
+        };
+        synth = new Tone.NoiseSynth(ns);
+      } else if (st === 'fm' && typeof Tone.FMSynth === 'function') {
+        synth = new Tone.FMSynth({
+          harmonicity: lc.harmonicity ?? 3,
+          modulationIndex: lc.modulationIndex ?? 10,
+          oscillator: lc.oscillator || { type: 'sine' },
+          envelope: lc.envelope || { attack: 0.5, decay: 0.3, sustain: 0.8, release: 2 },
+          modulation: lc.modulation || { type: 'square' },
+          modulationEnvelope: lc.modulationEnvelope || { attack: 0.5, decay: 0, sustain: 1, release: 0.5 },
+          volume: lc.volume ?? -14,
+        });
+      }
+    } catch (e) {
+      console.warn('MusicManager: synth build failed for layer', name, st, e);
+      synth = null;
+    }
+    if (!synth) {
+      if (st === 'fm') {
+        console.warn('MusicManager: FMSynth unavailable or failed; using triangle drone fallback for', name);
+      } else {
+        console.warn('MusicManager: unknown or failed synthType', JSON.stringify(lc.synthType), 'for layer', name, '— using Synth fallback');
+      }
       synth = new Tone.Synth({
-        oscillator: lc.oscillator, envelope: lc.envelope, volume: lc.volume ?? -12,
-      });
-    } else if (lc.synthType === 'membrane') {
-      const mem = {
-        pitchDecay: lc.pitchDecay ?? 0.05,
-        octaves: lc.octaves ?? 5,
-        volume: lc.volume ?? -11,
-      };
-      if (lc.envelope) mem.envelope = lc.envelope;
-      synth = new Tone.MembraneSynth(mem);
-    } else if (lc.synthType === 'noise') {
-      const ns = {
-        noise: { type: lc.noiseType || 'white' },
-        envelope: lc.envelope || { attack: 0.001, decay: 0.06, sustain: 0 },
-        volume: lc.volume ?? -18,
-      };
-      synth = new Tone.NoiseSynth(ns);
-    } else if (lc.synthType === 'fm') {
-      synth = new Tone.FMSynth({
-        harmonicity: lc.harmonicity ?? 3,
-        modulationIndex: lc.modulationIndex ?? 10,
-        oscillator: lc.oscillator || { type: 'sine' },
-        envelope: lc.envelope || { attack: 0.5, decay: 0.3, sustain: 0.8, release: 2 },
-        modulation: lc.modulation || { type: 'square' },
-        modulationEnvelope: lc.modulationEnvelope || { attack: 0.5, decay: 0, sustain: 1, release: 0.5 },
+        oscillator: { type: 'triangle' },
+        envelope: lc.envelope || { attack: 0.4, decay: 0.2, sustain: 0.7, release: 1.5 },
         volume: lc.volume ?? -14,
       });
+      voiceKind = 'mono';
     }
 
     let filter = null;
@@ -352,14 +376,14 @@ class MusicManager {
     const seq = new Tone.Sequence((time, val) => {
       if (val === null || val === 0) return;
       try {
-        if (lc.synthType === 'membrane') synth.triggerAttackRelease('C1', dur, time);
-        else if (lc.synthType === 'noise') synth.triggerAttackRelease(dur, time);
+        if (st === 'membrane') synth.triggerAttackRelease('C1', dur, time);
+        else if (st === 'noise') synth.triggerAttackRelease(dur, time);
         else synth.triggerAttackRelease(val, dur, time);
       } catch (e) { /* voice limit */ }
     }, notes, lc.subdivision);
     seq.loop = true;
 
-    return { gain, synth, seq, min: lc.minIntensity, filter, lc, name };
+    return { gain, synth, seq, min: lc.minIntensity, filter, lc, name, voiceKind };
   }
 
   _mergedLayer(layerName) {
@@ -422,7 +446,7 @@ class MusicManager {
     const dur = merged.noteDuration || L.lc.noteDuration || '16n';
     const sub = merged.subdivision || L.lc.subdivision;
     const synth = L.synth;
-    const st = L.lc.synthType;
+    const st = L.voiceKind || String(L.lc.synthType || '').trim().toLowerCase();
     L.seq.dispose();
     const seq = new Tone.Sequence((time, val) => {
       if (val === null || val === 0) return;
@@ -472,6 +496,7 @@ class MusicManager {
     for (const name of Object.keys(this.layers)) {
       const L = this.layers[name];
       const merged = this._mergedLayer(name);
+      const sk = L.voiceKind || String(L.lc.synthType || '').trim().toLowerCase();
 
       if (L.filter && merged.filterFreq != null) {
         const fp = L.filter.frequency;
@@ -480,13 +505,13 @@ class MusicManager {
         fp.linearRampToValueAtTime(Math.max(merged.filterFreq, 20), end);
       }
 
-      if (merged.oscillator && (L.lc.synthType === 'mono' || L.lc.synthType === 'poly')) {
+      if (merged.oscillator && (sk === 'mono' || sk === 'poly')) {
         try {
           L.synth.set({ oscillator: merged.oscillator });
         } catch (e) { /* ignore */ }
       }
 
-      if (L.lc.synthType === 'membrane') {
+      if (sk === 'membrane') {
         const o = {};
         if (merged.pitchDecay != null) o.pitchDecay = merged.pitchDecay;
         if (merged.octaves != null) o.octaves = merged.octaves;
@@ -496,7 +521,7 @@ class MusicManager {
         }
       }
 
-      if (L.lc.synthType === 'noise') {
+      if (sk === 'noise') {
         const o = {};
         if (merged.envelope) o.envelope = merged.envelope;
         if (merged.noiseType) o.noise = { type: merged.noiseType };
@@ -510,7 +535,7 @@ class MusicManager {
         }
       }
 
-      if (L.lc.synthType === 'fm') {
+      if (sk === 'fm') {
         if (merged.harmonicity != null) {
           try { L.synth.harmonicity.rampTo(merged.harmonicity, ramp); } catch (e) {}
         }
@@ -529,7 +554,7 @@ class MusicManager {
       }
 
       // Universal volume ramp for mono/poly/membrane synths
-      if (merged.volume != null && L.lc.synthType !== 'noise' && L.lc.synthType !== 'fm') {
+      if (merged.volume != null && sk !== 'noise' && sk !== 'fm') {
         try { L.synth.volume.rampTo(merged.volume, ramp); } catch (e) {}
       }
     }
