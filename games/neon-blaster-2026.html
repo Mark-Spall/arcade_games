@@ -1008,19 +1008,42 @@ class SpriteCache {
     grad.addColorStop(0, cfg.colors[1] || cfg.colors[0]); grad.addColorStop(1, cfg.colors[0]);
     cx.fillStyle = grad; cx.strokeStyle = cfg.accent; cx.lineWidth = 1.5;
 
-    cx.beginPath();
-    if (cfg.shape === 'diamond') {
-      cx.moveTo(0, -s); cx.lineTo(s * 0.8, 0); cx.lineTo(0, s * 0.8); cx.lineTo(-s * 0.8, 0);
-    } else if (cfg.shape === 'chevron') {
-      cx.moveTo(0, -s * 0.7); cx.lineTo(s, s * 0.4); cx.lineTo(s * 0.55, s * 0.7);
-      cx.lineTo(0, s * 0.2); cx.lineTo(-s * 0.55, s * 0.7); cx.lineTo(-s, s * 0.4);
-    } else {
-      for (let i = 0; i < 6; i++) {
-        const a = (Math.PI * 2 / 6) * i - Math.PI / 2;
-        cx[i === 0 ? 'moveTo' : 'lineTo'](Math.cos(a) * s, Math.sin(a) * s);
+    function _drawShape(c2, s2, shape) {
+      c2.beginPath();
+      if (shape === 'diamond') {
+        c2.moveTo(0, -s2); c2.lineTo(s2 * 0.8, 0); c2.lineTo(0, s2 * 0.8); c2.lineTo(-s2 * 0.8, 0);
+      } else if (shape === 'chevron') {
+        c2.moveTo(0, -s2 * 0.7); c2.lineTo(s2, s2 * 0.4); c2.lineTo(s2 * 0.55, s2 * 0.7);
+        c2.lineTo(0, s2 * 0.2); c2.lineTo(-s2 * 0.55, s2 * 0.7); c2.lineTo(-s2, s2 * 0.4);
+      } else if (shape === 'star') {
+        for (let i = 0; i < 5; i++) {
+          const ao = (Math.PI * 2 / 5) * i - Math.PI / 2;
+          const ai = ao + Math.PI / 5;
+          c2[i === 0 ? 'moveTo' : 'lineTo'](Math.cos(ao) * s2, Math.sin(ao) * s2);
+          c2.lineTo(Math.cos(ai) * s2 * 0.45, Math.sin(ai) * s2 * 0.45);
+        }
+      } else if (shape === 'cross') {
+        const arm = s2 * 0.32;
+        c2.moveTo(-arm, -s2); c2.lineTo(arm, -s2); c2.lineTo(arm, -arm);
+        c2.lineTo(s2, -arm); c2.lineTo(s2, arm); c2.lineTo(arm, arm);
+        c2.lineTo(arm, s2); c2.lineTo(-arm, s2); c2.lineTo(-arm, arm);
+        c2.lineTo(-s2, arm); c2.lineTo(-s2, -arm); c2.lineTo(-arm, -arm);
+      } else if (shape === 'crescent') {
+        c2.arc(0, 0, s2, 0.3, Math.PI * 2 - 0.3);
+        c2.arc(s2 * 0.35, 0, s2 * 0.75, Math.PI * 2 - 0.6, 0.6, true);
+      } else if (shape === 'triangle') {
+        c2.moveTo(0, -s2); c2.lineTo(s2 * 0.9, s2 * 0.7); c2.lineTo(-s2 * 0.9, s2 * 0.7);
+      } else {
+        for (let i = 0; i < 6; i++) {
+          const a = (Math.PI * 2 / 6) * i - Math.PI / 2;
+          c2[i === 0 ? 'moveTo' : 'lineTo'](Math.cos(a) * s2, Math.sin(a) * s2);
+        }
       }
+      c2.closePath();
     }
-    cx.closePath(); cx.fill(); cx.stroke();
+
+    _drawShape(cx, s, cfg.shape);
+    cx.fill(); cx.stroke();
     cx.fillStyle = cfg.accent;
     cx.beginPath(); cx.arc(0, 0, s * 0.2, 0, Math.PI * 2); cx.fill();
 
@@ -1030,19 +1053,8 @@ class SpriteCache {
     const cxf = cf.getContext('2d');
     cxf.translate(dim / 2, dim / 2);
     cxf.fillStyle = '#fff'; cxf.strokeStyle = '#fff'; cxf.lineWidth = 1.5;
-    cxf.beginPath();
-    if (cfg.shape === 'diamond') {
-      cxf.moveTo(0, -s); cxf.lineTo(s * 0.8, 0); cxf.lineTo(0, s * 0.8); cxf.lineTo(-s * 0.8, 0);
-    } else if (cfg.shape === 'chevron') {
-      cxf.moveTo(0, -s * 0.7); cxf.lineTo(s, s * 0.4); cxf.lineTo(s * 0.55, s * 0.7);
-      cxf.lineTo(0, s * 0.2); cxf.lineTo(-s * 0.55, s * 0.7); cxf.lineTo(-s, s * 0.4);
-    } else {
-      for (let i = 0; i < 6; i++) {
-        const a = (Math.PI * 2 / 6) * i - Math.PI / 2;
-        cxf[i === 0 ? 'moveTo' : 'lineTo'](Math.cos(a) * s, Math.sin(a) * s);
-      }
-    }
-    cxf.closePath(); cxf.fill(); cxf.stroke();
+    _drawShape(cxf, s, cfg.shape);
+    cxf.fill(); cxf.stroke();
 
     this.cache[type] = { normal: c, flash: cf, dim };
     return this.cache[type];
@@ -1116,11 +1128,28 @@ const Sprites = {
     } else if (cfg.shape === 'chevron') {
       ctx.moveTo(0, -s * 0.7); ctx.lineTo(s, s * 0.4); ctx.lineTo(s * 0.55, s * 0.7);
       ctx.lineTo(0, s * 0.2); ctx.lineTo(-s * 0.55, s * 0.7); ctx.lineTo(-s, s * 0.4);
-    } else { // hexagon
+    } else if (cfg.shape === 'star') {
+      for (let i = 0; i < 5; i++) {
+        const ao = (Math.PI * 2 / 5) * i - Math.PI / 2;
+        const ai = ao + Math.PI / 5;
+        ctx[i === 0 ? 'moveTo' : 'lineTo'](Math.cos(ao) * s, Math.sin(ao) * s);
+        ctx.lineTo(Math.cos(ai) * s * 0.45, Math.sin(ai) * s * 0.45);
+      }
+    } else if (cfg.shape === 'cross') {
+      const arm = s * 0.32;
+      ctx.moveTo(-arm, -s); ctx.lineTo(arm, -s); ctx.lineTo(arm, -arm);
+      ctx.lineTo(s, -arm); ctx.lineTo(s, arm); ctx.lineTo(arm, arm);
+      ctx.lineTo(arm, s); ctx.lineTo(-arm, s); ctx.lineTo(-arm, arm);
+      ctx.lineTo(-s, arm); ctx.lineTo(-s, -arm); ctx.lineTo(-arm, -arm);
+    } else if (cfg.shape === 'crescent') {
+      ctx.arc(0, 0, s, 0.3, Math.PI * 2 - 0.3);
+      ctx.arc(s * 0.35, 0, s * 0.75, Math.PI * 2 - 0.6, 0.6, true);
+    } else if (cfg.shape === 'triangle') {
+      ctx.moveTo(0, -s); ctx.lineTo(s * 0.9, s * 0.7); ctx.lineTo(-s * 0.9, s * 0.7);
+    } else {
       for (let i = 0; i < 6; i++) {
         const a = (Math.PI * 2 / 6) * i - Math.PI / 2;
-        const method = i === 0 ? 'moveTo' : 'lineTo';
-        ctx[method](Math.cos(a) * s, Math.sin(a) * s);
+        ctx[i === 0 ? 'moveTo' : 'lineTo'](Math.cos(a) * s, Math.sin(a) * s);
       }
     }
     ctx.closePath(); ctx.fill(); ctx.stroke();
@@ -1429,7 +1458,8 @@ function generateFigure8Path(sx, sy) {
 function pickDivePath(e, playerX, playerY) {
   const pref = e.cfg.preferDive;
   if (pref === 'circle') return generateCirclePath(e.x, e.y, playerX, playerY);
-  // Random variety for non-preference enemies
+  if (pref === 'zigzag') return generateZigzagPath(e.x, e.y);
+  if (pref === 'figure8') return generateFigure8Path(e.x, e.y);
   const roll = Math.random();
   if (roll < 0.35) return generateDivePath(e.x, e.y, playerX, playerY);
   if (roll < 0.55) return generateLoopPath(e.x, e.y);
@@ -1531,9 +1561,9 @@ class EnemyEntity {
     this.alive = true;
     this.bossPhaseNotified = -1;
     this.bossAngle = 0;
-    // Cloaker: starts nearly invisible, becomes opaque as damaged
     this.cloaked = cfg.cloaked || false;
-    this.visibility = cfg.cloaked ? 0.06 : 1; // 6% base = ghostly shimmer
+    this.visibility = cfg.cloaked ? 0.06 : 1;
+    this.cloakBasePct = cfg.cloaked ? 1.0 : -1;
   }
 
   _getBossPhase() {
@@ -1611,7 +1641,15 @@ class EnemyEntity {
       this.diveCooldown -= dt;
       if (Math.random() < this.shootRate * dt) {
         const bs = d.bulletSpeedBase + level * d.bulletSpeedPerLevel;
-        enemyBullets.push({ x: this.x, y: this.y + this.h / 2, vy: bs, vx: rand(-0.8, 0.8), color: CONFIG.colors.yellow });
+        if (this.cfg.burstShoot) {
+          const dx = player.x - this.x, dy = player.y - this.y;
+          const a = Math.atan2(dy, dx);
+          for (let bi = -1; bi <= 1; bi++) {
+            enemyBullets.push({ x: this.x, y: this.y + this.h / 2, vx: Math.cos(a + bi * 0.15) * bs, vy: Math.sin(a + bi * 0.15) * bs, color: CONFIG.colors.yellow });
+          }
+        } else {
+          enemyBullets.push({ x: this.x, y: this.y + this.h / 2, vy: bs, vx: rand(-0.8, 0.8), color: CONFIG.colors.yellow });
+        }
       }
     }
     if (this.flash > 0) this.flash -= dt;
@@ -1639,21 +1677,57 @@ class EnemyEntity {
     const angle = Math.atan2(dy, dx);
     const bs = 3.5;
 
+    const bx = this.x, by = this.y + this.h / 2;
+
     if (phase.pattern === 'spread3') {
       for (let i = -1; i <= 1; i++) {
         const a = angle + i * 0.25;
-        enemyBullets.push({ x: this.x, y: this.y + this.h / 2, vx: Math.cos(a) * bs, vy: Math.sin(a) * bs, color: CONFIG.colors.red });
+        enemyBullets.push({ x: bx, y: by, vx: Math.cos(a) * bs, vy: Math.sin(a) * bs, color: CONFIG.colors.red });
       }
     } else if (phase.pattern === 'spread5') {
       for (let i = -2; i <= 2; i++) {
         const a = angle + i * 0.18;
-        enemyBullets.push({ x: this.x, y: this.y + this.h / 2, vx: Math.cos(a) * bs, vy: Math.sin(a) * bs, color: CONFIG.colors.orange });
+        enemyBullets.push({ x: bx, y: by, vx: Math.cos(a) * bs, vy: Math.sin(a) * bs, color: CONFIG.colors.orange });
       }
     } else if (phase.pattern === 'spray') {
       this.bossAngle += 0.3;
+      for (let i = 0; i < 3; i++) {
+        const a = this.bossAngle + i * (Math.PI * 2 / 3);
+        enemyBullets.push({ x: bx, y: by, vx: Math.cos(a) * bs, vy: Math.sin(a) * bs, color: CONFIG.colors.yellow });
+      }
+    } else if (phase.pattern === 'ring') {
+      const count = 12;
+      for (let i = 0; i < count; i++) {
+        const a = (Math.PI * 2 / count) * i;
+        enemyBullets.push({ x: bx, y: by, vx: Math.cos(a) * bs * 0.8, vy: Math.sin(a) * bs * 0.8, color: CONFIG.colors.pink });
+      }
+    } else if (phase.pattern === 'aimed_burst') {
+      for (let i = 0; i < 3; i++) {
+        const spread = (i - 1) * 0.12;
+        const spd = bs * (0.85 + i * 0.15);
+        enemyBullets.push({ x: bx, y: by, vx: Math.cos(angle + spread) * spd, vy: Math.sin(angle + spread) * spd, color: CONFIG.colors.orange });
+      }
+    } else if (phase.pattern === 'cross') {
+      for (let i = 0; i < 4; i++) {
+        const a = (Math.PI / 2) * i + this.bossAngle;
+        for (let j = 1; j <= 2; j++) {
+          enemyBullets.push({ x: bx, y: by, vx: Math.cos(a) * bs * j * 0.6, vy: Math.sin(a) * bs * j * 0.6, color: CONFIG.colors.red });
+        }
+      }
+      this.bossAngle += 0.12;
+    } else if (phase.pattern === 'helix') {
+      this.bossAngle += 0.18;
       for (let i = 0; i < 2; i++) {
         const a = this.bossAngle + i * Math.PI;
-        enemyBullets.push({ x: this.x, y: this.y + this.h / 2, vx: Math.cos(a) * bs, vy: Math.sin(a) * bs, color: CONFIG.colors.yellow });
+        enemyBullets.push({ x: bx, y: by, vx: Math.cos(a) * bs, vy: Math.sin(a) * bs, color: '#cc44ff' });
+        enemyBullets.push({ x: bx, y: by, vx: Math.cos(a + 0.4) * bs * 0.75, vy: Math.sin(a + 0.4) * bs * 0.75, color: '#8844cc' });
+      }
+    } else if (phase.pattern === 'wall') {
+      const wallW = this.w * 1.4;
+      const count = 7;
+      for (let i = 0; i < count; i++) {
+        const ox = -wallW / 2 + (wallW / (count - 1)) * i;
+        enemyBullets.push({ x: bx + ox, y: by, vx: 0, vy: bs, color: CONFIG.colors.yellow });
       }
     }
   }
@@ -1668,11 +1742,12 @@ class EnemyEntity {
       ctx.globalAlpha = 1; ctx.restore();
     }
 
-    // Cloaker visibility: increases as damage taken
     if (this.cloaked) {
-      const damagePct = 1 - (this.hp / this.maxHp); // 0 = full hp, 1 = dead
+      const hpPct = this.hp / this.maxHp;
+      const base = this.cloakBasePct > 0 ? this.cloakBasePct : 1;
+      const damageSinceCloak = clamp((base - hpPct) / base, 0, 1);
       const shimmer = Math.sin(Date.now() * 0.01 + this.bobPhase * 3) * 0.04;
-      this.visibility = 0.06 + damagePct * 0.9 + shimmer;
+      this.visibility = 0.06 + damageSinceCloak * 0.9 + shimmer;
     }
 
     ctx.save();
@@ -1728,6 +1803,20 @@ class WaveManager {
     return types;
   }
 
+  _getBossTypeForLevel(level) {
+    const bp = CONFIG.waves.bossProgression;
+    if (!bp || !bp.length) return 'sentinel';
+    let boss = bp[0].boss;
+    for (const entry of bp) { if (level >= entry.minLevel) boss = entry.boss; }
+    // After the defined progression wraps, cycle through top-tier bosses
+    if (level > bp[bp.length - 1].minLevel) {
+      const topBosses = ['dreadnought', 'leviathan', 'warden'];
+      const cycle = Math.floor((level - bp[bp.length - 1].minLevel) / 5);
+      boss = topBosses[cycle % topBosses.length];
+    }
+    return boss;
+  }
+
   spawn(level) {
     const w = CONFIG.waves;
 
@@ -1735,7 +1824,8 @@ class WaveManager {
     if (w.bossEvery && level > 1 && level % w.bossEvery === 0) {
       this.levelUpgradeAvail = true;
       const W = CONFIG.world.width;
-      const boss = new EnemyEntity('sentinel', W / 2, 100, level);
+      const bossType = this._getBossTypeForLevel(level);
+      const boss = new EnemyEntity(bossType, W / 2, 100, level);
       return [boss];
     }
 
@@ -2633,8 +2723,10 @@ class Game {
     for (const e of this.enemies) {
       e.update(dt, this.player, this.level, this.enemyBullets, this.audio, this.gravityWells);
       if (e.entered && !e.diving && !e.returningHome && !e.cfg.isBoss) {
-        // Initiate dive
-        if (e.diveCooldown <= 0 && divingCount < maxDivers && Math.random() < diveChance * dt) {
+        const shouldDive = e.cfg.alwaysDive
+          ? (e.diveCooldown <= 0)
+          : (e.diveCooldown <= 0 && divingCount < maxDivers && Math.random() < diveChance * dt);
+        if (shouldDive) {
           e.diving = true; e.diveStep = 0;
           this.audio.dive();
           e.divePath = pickDivePath(e, this.player.x, this.player.y);
@@ -2710,23 +2802,61 @@ class Game {
             if (drop) this.powerups.push(drop);
           }
 
-          // Boss minion spawning on phase transitions
+          // Boss minion / sub-boss spawning on phase transitions
           if (e.cfg.isBoss && e.alive && e.cfg.phases) {
             const newPct = e.hp / e.maxHp;
             for (const phase of e.cfg.phases) {
-              if (prevPct > phase.above && newPct <= phase.above && phase.spawnMinions) {
-                const count = phase.minionCount || 3;
-                for (let i = 0; i < count; i++) {
-                  const sx = e.x + rand(-80, 80);
-                  const m = new EnemyEntity(phase.spawnMinions, sx, e.y + rand(20, 50), this.level);
-                  m.entered = true; m.y = e.y + rand(20, 50);
-                  m.homeX = sx; m.homeY = e.y + 80 + i * 40;
-                  m.diving = true; m.diveStep = 0;
-                  m.divePath = generateLoopPath(m.x, m.y);
-                  newSpawns.push(m);
+              if (prevPct > phase.above && newPct <= phase.above) {
+                // Sub-boss spawn (e.g. Leviathan spawns a Sentinel)
+                if (phase.spawnSubBoss && e.cfg.spawnSubBoss) {
+                  const subType = e.cfg.spawnSubBoss;
+                  const sx = e.x + rand(-60, 60);
+                  const sub = new EnemyEntity(subType, sx, e.y + 50, this.level);
+                  sub.entered = false;
+                  newSpawns.push(sub);
+                  this.particles.emit(e.x, e.y, CONFIG.colors.red, 32, 6, 5);
+                  this.particles.emit(e.x, e.y, '#ffffff', 18, 4, 3);
+                  this.screenShake = Math.max(this.screenShake, 18);
+                  this.flashWhite = Math.max(this.flashWhite, 8);
+                  this.slowmo = Math.max(this.slowmo, 15);
+                  this.audio.explode();
                 }
-                this.particles.emit(e.x, e.y, CONFIG.colors.purple, 24, 5);
-                this.screenShake = 10;
+                // Phase-triggered cloaking
+                if (phase.cloak && !e.cloaked) {
+                  e.cloaked = true;
+                  e.visibility = 0.06;
+                  e.cloakBasePct = e.hp / e.maxHp;
+                  this.particles.emit(e.x, e.y, '#4466ff', 30, 5, 3);
+                  this.audio.play(200, 'sine', 0.3, 0.4);
+                }
+                if (phase.decloak && e.cloaked && !e.cfg.cloaked) {
+                  e.cloaked = false;
+                  e.visibility = 1;
+                  e.cloakBasePct = -1;
+                  this.particles.emit(e.x, e.y, '#ffffff', 24, 5, 3);
+                  this.screenShake = Math.max(this.screenShake, 8);
+                  this.audio.play(400, 'square', 0.25, 0.15);
+                }
+                if (phase.recloak && e.cloaked) {
+                  e.cloakBasePct = e.hp / e.maxHp;
+                  e.visibility = 0.06;
+                  this.particles.emit(e.x, e.y, '#4466ff', 20, 4, 3);
+                }
+                // Regular minion spawn
+                if (phase.spawnMinions) {
+                  const count = phase.minionCount || 3;
+                  for (let i = 0; i < count; i++) {
+                    const sx = e.x + rand(-80, 80);
+                    const m = new EnemyEntity(phase.spawnMinions, sx, e.y + rand(20, 50), this.level);
+                    m.entered = true; m.y = e.y + rand(20, 50);
+                    m.homeX = sx; m.homeY = e.y + 80 + i * 40;
+                    m.diving = true; m.diveStep = 0;
+                    m.divePath = generateLoopPath(m.x, m.y);
+                    newSpawns.push(m);
+                  }
+                  this.particles.emit(e.x, e.y, CONFIG.colors.purple, 24, 5);
+                  this.screenShake = Math.max(this.screenShake, 10);
+                }
               }
             }
           }
