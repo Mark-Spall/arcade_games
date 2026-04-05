@@ -2087,12 +2087,13 @@ class Game {
     this.transitionTimer = 120;
     this.overlayAlpha = 0;
     this.player.suspendTimers();
-    this.bullets = []; this.enemyBullets = []; this.powerups = []; this.mines = []; this.gravityWells = [];
+    this.bullets = []; this.enemyBullets = []; this.mines = []; this.gravityWells = [];
   }
 
   _advanceWaveComplete() {
     this.transitionTimer--;
     this.overlayAlpha = clamp(this.transitionTimer < 60 ? (60 - this.transitionTimer) / 30 : 0, 0, 0.7);
+    if (this.powerups.length > 0) this.transitionTimer = Math.max(this.transitionTimer, 1);
     if (this.transitionTimer <= 0) {
       const interlude = getInterludeLines(this.story, this.level);
       if (interlude && interlude.length) {
@@ -2217,6 +2218,17 @@ class Game {
       return;
     }
     if (this.state === 'wave_complete') {
+      this.player.update(1, this.input, this.canyon);
+      this.powerups = this.powerups.filter(p => {
+        p.y += p.vy; p.life -= 1;
+        if (p.y > CONFIG.world.height + 10 || p.life <= 0) return false;
+        if (Math.abs(p.x - this.player.x) < 22 && Math.abs(p.y - this.player.y) < 22) {
+          this.audio.powerup();
+          this._collectPowerup(p);
+          return false;
+        }
+        return true;
+      });
       this._advanceWaveComplete();
       this.canyon.update(1, this.level);
       this.particles.update(1);
@@ -2517,8 +2529,8 @@ class Game {
     // Particles
     this.particles.update(dt);
 
-    // Next wave — classic transition: wave_complete → interlude → wave_starting → playing
-    if (this.enemies.length === 0 && this.state === 'playing') {
+    // Next wave — wait for all drops to be collected (or expire), then transition
+    if (this.enemies.length === 0 && this.powerups.length === 0 && this.state === 'playing') {
       this.level++;
       this.pendingSpawnLevel = this.level;
       const isBossLevel = CONFIG.waves.bossEvery && this.level > 1 && this.level % CONFIG.waves.bossEvery === 0;
