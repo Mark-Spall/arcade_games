@@ -1451,19 +1451,28 @@ const Sprites = {
     ctx.restore();
   },
 
-  mine(ctx, x, y, life, maxLife) {
+  mine(ctx, x, y, life, maxLife, armRemaining = 0, armTotal = 1) {
     const pulse = 0.8 + Math.sin(Date.now() * 0.01) * 0.2;
     const fade = clamp(life / 60, 0, 1); // fade out near end of life
-    ctx.save(); ctx.translate(x, y); ctx.globalAlpha = fade * 0.8;
+    const arming = armRemaining > 0;
+    const armT = arming ? Math.max(0.08, 1 - armRemaining / Math.max(armTotal, 1)) : 1;
+    ctx.save(); ctx.translate(x, y); ctx.globalAlpha = fade * (arming ? 0.45 : 0.8);
     // Outer ring
-    ctx.strokeStyle = '#ff6600'; ctx.lineWidth = 1.5;
+    ctx.strokeStyle = arming ? '#aa7744' : '#ff6600'; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.arc(0, 0, 8 * pulse, 0, Math.PI * 2); ctx.stroke();
     // Inner core
-    ctx.fillStyle = '#ff6600';
+    ctx.fillStyle = arming ? '#886633' : '#ff6600';
     ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2); ctx.fill();
-    // Proximity ring
-    ctx.strokeStyle = 'rgba(255,100,0,0.15)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(0, 0, CONFIG.auxWeapons.mine.detonateRadius, 0, Math.PI * 2); ctx.stroke();
+    if (arming) {
+      ctx.globalAlpha = fade * 0.9;
+      ctx.strokeStyle = 'rgba(255,200,80,0.5)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, 0, 14, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * armT); ctx.stroke();
+    } else {
+      ctx.globalAlpha = fade * 0.8;
+      // Proximity ring (only when live)
+      ctx.strokeStyle = 'rgba(255,100,0,0.15)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(0, 0, CONFIG.auxWeapons.mine.detonateRadius, 0, Math.PI * 2); ctx.stroke();
+    }
     ctx.globalAlpha = 1;
     ctx.restore();
   },
@@ -2724,9 +2733,11 @@ class Game {
     // Land mines: drop behind player
     if (pl.mineTimer > 0 && pl.mineCD <= 0) {
       pl.mineCD = aw.mine.dropRate;
+      const arm = aw.mine.armFrames != null ? aw.mine.armFrames : 55;
       this.mines.push({
         x: pl.x, y: pl.y + 20, life: aw.mine.life, maxLife: aw.mine.life,
         dmg: aw.mine.dmg, radius: aw.mine.detonateRadius,
+        armRemaining: arm, armTotal: arm,
       });
     }
 
@@ -2777,6 +2788,10 @@ class Game {
     this.mines = this.mines.filter(m => {
       m.life -= dt;
       if (m.life <= 0) return false;
+      if (m.armRemaining > 0) {
+        m.armRemaining -= dt;
+        return true;
+      }
       if (pl.invincible <= 0 && dist(m.x, m.y, pl.x, pl.y) < m.radius + plMineR) {
         this.audio.explode();
         this.particles.emit(m.x, m.y, '#ff6600', 18, 4, 4);
@@ -3374,7 +3389,9 @@ class Game {
     }
 
     // Mines
-    for (const m of this.mines) Sprites.mine(ctx, m.x, m.y, m.life, m.maxLife);
+    for (const m of this.mines) {
+      Sprites.mine(ctx, m.x, m.y, m.life, m.maxLife, m.armRemaining || 0, m.armTotal || 1);
+    }
 
     // Enemy bullets
     for (const b of this.enemyBullets) Sprites.enemyBullet(ctx, b.x, b.y, b.color || CONFIG.colors.yellow);
