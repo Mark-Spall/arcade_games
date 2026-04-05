@@ -1855,33 +1855,63 @@ class HUD {
     ctx.fillText('LV ' + game.level, W / 2, 22);
     ctx.shadowBlur = 0;
 
-    // Lives
+    // Lives, bombs, gravity — always visible resource column (top-right)
     ctx.textAlign = 'right';
-    ctx.font = '500 10px Rajdhani'; ctx.fillStyle = '#aaa';
-    for (let i = 0; i < game.lives; i++) {
+    const resX = W - 12;
+    let resY = 14;
+    ctx.font = '600 8px Orbitron'; ctx.fillStyle = 'rgba(170,170,170,0.95)';
+    ctx.shadowBlur = 0;
+    ctx.fillText('LIVES', resX, resY);
+    resY += 12;
+    ctx.font = '700 12px Orbitron'; ctx.fillStyle = CONFIG.colors.blue;
+    ctx.shadowColor = CONFIG.colors.blue; ctx.shadowBlur = 6;
+    ctx.fillText('×' + game.lives, resX, resY);
+    ctx.shadowBlur = 0;
+    resY += 14;
+    const shipRowY = resY;
+    const shipN = Math.min(game.lives, 8);
+    ctx.textAlign = 'center';
+    for (let i = 0; i < shipN; i++) {
+      const sx = resX - 10 - i * 14;
       ctx.fillStyle = CONFIG.colors.blue;
-      ctx.beginPath(); ctx.arc(W - 18 - i * 20, 22, 6, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#fff'; ctx.font = 'bold 8px Orbitron'; ctx.textAlign = 'center';
-      ctx.fillText('▲', W - 18 - i * 20, 25);
+      ctx.beginPath(); ctx.arc(sx, shipRowY, 4.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 7px Orbitron';
+      ctx.fillText('▲', sx, shipRowY + 2);
     }
-
-    // Bombs & shields
     ctx.textAlign = 'right';
-    ctx.font = '700 9px Rajdhani';
-    if (game.player.bombs > 0) {
-      ctx.fillStyle = CONFIG.colors.orange;
-      ctx.fillText('BOMB ×' + game.player.bombs, W - 12, 52);
-    }
-    if (game.player.gravCharges > 0) {
-      ctx.fillStyle = '#44aaff';
-      ctx.fillText('GRAV ×' + game.player.gravCharges, W - 12, 66);
-    }
+    resY += 14;
+    ctx.font = '600 8px Orbitron'; ctx.fillStyle = 'rgba(170,170,170,0.95)';
+    ctx.fillText('BOMB', resX, resY);
+    resY += 11;
+    ctx.font = '700 11px Rajdhani';
+    ctx.fillStyle = game.player.bombs > 0 ? CONFIG.colors.orange : 'rgba(255,255,255,0.32)';
+    ctx.shadowColor = game.player.bombs > 0 ? CONFIG.colors.orange : 'transparent';
+    ctx.shadowBlur = game.player.bombs > 0 ? 5 : 0;
+    ctx.fillText('×' + game.player.bombs, resX, resY);
+    ctx.shadowBlur = 0;
+    resY += 16;
+    ctx.font = '600 8px Orbitron'; ctx.fillStyle = 'rgba(170,170,170,0.95)';
+    ctx.fillText('GRAV', resX, resY);
+    resY += 11;
+    ctx.font = '700 11px Rajdhani';
+    ctx.fillStyle = game.player.gravCharges > 0 ? '#44aaff' : 'rgba(255,255,255,0.32)';
+    ctx.shadowColor = game.player.gravCharges > 0 ? '#44aaff' : 'transparent';
+    ctx.shadowBlur = game.player.gravCharges > 0 ? 5 : 0;
+    ctx.fillText('×' + game.player.gravCharges, resX, resY);
+    ctx.shadowBlur = 0;
+    resY += 16;
     if (game.player.shields > 0) {
-      ctx.fillStyle = CONFIG.colors.purple;
-      ctx.fillText('SHLD ×' + game.player.shields, W - 12, 80);
+      ctx.font = '600 8px Orbitron'; ctx.fillStyle = 'rgba(170,170,170,0.95)';
+      ctx.fillText('SHLD', resX, resY);
+      resY += 11;
+      ctx.font = '700 11px Rajdhani'; ctx.fillStyle = CONFIG.colors.purple;
+      ctx.shadowColor = CONFIG.colors.purple; ctx.shadowBlur = 5;
+      ctx.fillText('×' + game.player.shields, resX, resY);
+      ctx.shadowBlur = 0;
+      resY += 16;
     }
     // Active aux weapons
-    let auxY = 94;
+    let auxY = resY + 4;
     if (game.player.seekerTimer > 0) {
       ctx.fillStyle = '#ff2244'; ctx.fillText('SEEKER', W - 12, auxY); auxY += 14;
     }
@@ -2544,10 +2574,19 @@ class Game {
       return b.y > -10 && b.y < CONFIG.world.height + 20 && b.x > -10 && b.x < CONFIG.world.width + 10;
     });
 
-    // Mines: proximity detonation
+    // Mines: proximity detonation (enemies + player)
+    const plMineR = Math.max(pl.w, pl.h) * 0.38;
     this.mines = this.mines.filter(m => {
       m.life -= dt;
       if (m.life <= 0) return false;
+      if (pl.invincible <= 0 && dist(m.x, m.y, pl.x, pl.y) < m.radius + plMineR) {
+        this.audio.explode();
+        this.particles.emit(m.x, m.y, '#ff6600', 18, 4, 4);
+        this.particles.emit(m.x, m.y, '#ffe600', 12, 3);
+        this.screenShake = 8;
+        this._playerHit();
+        return false;
+      }
       for (const e of this.enemies) {
         if (!e.alive) continue;
         if (dist(m.x, m.y, e.x, e.y) < m.radius + e.w / 2) {
